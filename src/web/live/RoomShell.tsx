@@ -5,6 +5,7 @@ import { REACTIONS } from "@/core/messages";
 import { languageLabel } from "@/core/room-model";
 import { ActionMenu } from "./ActionMenu";
 import { ChatInput, ChatMessages } from "./ChatPanel";
+import { HandsQueue } from "./HandsQueue";
 import { Icon } from "./Icon";
 import { PassageCard } from "./PassageCard";
 import { PassagePicker } from "./PassagePicker";
@@ -25,6 +26,9 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
 
   const myRole = me?.stageRole ?? (state.local?.role === "host" ? "host" : "listener");
   const onStage = participants.filter((p) => p.stageRole !== "listener").sort((a, b) => (a.stageRole === "host" ? -1 : b.stageRole === "host" ? 1 : 0));
+  const hands = participants
+    .filter((p) => p.stageRole === "listener" && p.handRaisedAt)
+    .sort((a, b) => (a.handRaisedAt! < b.handRaisedAt! ? -1 : 1));
   const mic = state.microphone;
   const connected = state.status === "connected";
 
@@ -76,6 +80,11 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
         </div>
         <button className="lv-btn lv-btn-ghost lv-people-btn" onClick={() => setSheet({ kind: "people" })} data-testid="people-btn" aria-label="People">
           <Icon name="users" size={18} /> <span>{participants.length}</span>
+          {hands.length > 0 && (
+            <span className="lv-hands-badge" data-testid="hands-badge" aria-label={`${hands.length} want to speak`}>
+              <Icon name="hand" size={12} /> {hands.length}
+            </span>
+          )}
         </button>
         {isHost && (
           <>
@@ -102,6 +111,7 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
         <section className="lv-main">
           <PassageCard passage={metadata?.passage ?? null} canEdit={Boolean(host)} onEdit={() => setSheet({ kind: "passage" })} />
           <Stage members={onStage} canModerate={Boolean(host)} onSelect={(p) => setSheet({ kind: "member", p })} />
+          <HandsQueue hands={hands} host={host} meIdentity={state.local?.identity ?? null} />
           {myRole === "speaker" && mic.state !== "live" && mic.state !== "muted" && (
             <div className="lv-prompt" data-testid="on-stage-prompt">
               <strong>You're on stage.</strong> Turn on your microphone and read the passage aloud. The host will give you feedback.
@@ -109,7 +119,7 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
           )}
           {myRole === "listener" && hand.raised && (
             <div className="lv-prompt lv-prompt-soft" data-testid="hand-prompt">
-              Your hand is up. The host will invite you when it's your turn.
+              Your hand is up. The host will invite you when it&apos;s your turn.
             </div>
           )}
         </section>

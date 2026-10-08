@@ -1,6 +1,6 @@
 import { createRoomRequestSchema, type CreateRoomResponse } from "@/core/room-model";
 import { createLogger, databaseFailure, livekitFailure, readJson, roomService, zodDetails } from "@/server/api-helpers";
-import { getOrCreateUser, withSetCookie } from "@/server/auth";
+import { getUser } from "@/server/auth";
 import { apiError, apiJson } from "@/server/http";
 
 export const runtime = "nodejs";
@@ -28,17 +28,18 @@ export async function POST(request: Request): Promise<Response> {
   const svc = roomService();
   if (!svc.ok) return svc.response;
 
-  let auth;
+  let user;
   try {
-    auth = await getOrCreateUser(request);
+    user = await getUser(request);
   } catch (err) {
     return databaseFailure(log, "rooms.auth-failed", err);
   }
+  if (!user) return apiError(401, "unauthenticated", "Sign in first.");
   try {
-    const room = await svc.service.createRoom(parsed.data, { identity: auth.user.id, name: auth.user.displayName });
-    log.info("rooms.created", { roomId: room.id, language: room.language, level: room.level, hostId: auth.user.id });
+    const room = await svc.service.createRoom(parsed.data, { identity: user.id, name: user.displayName });
+    log.info("rooms.created", { roomId: room.id, language: room.language, level: room.level, hostId: user.id });
     const response: CreateRoomResponse = { room };
-    return withSetCookie(apiJson(response, 201), auth.setCookie);
+    return apiJson(response, 201);
   } catch (err) {
     return livekitFailure(log, "rooms.create-failed", err, "Could not create the room.");
   }

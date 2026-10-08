@@ -6,12 +6,12 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { passagesFor } from "@/core/passages";
 import { LANGUAGES, LEVELS, languageLabel, type CreateRoomResponse, type LanguageCode, type Level } from "@/core/room-model";
 import { Icon } from "@/web/live/Icon";
-import { useMe } from "@/web/hooks/useMe";
+import { useAccount } from "@/web/account/AccountProvider";
 import { NameEditor } from "./NameEditor";
 
 export function CreateRoomForm() {
   const router = useRouter();
-  const { me, rename } = useMe();
+  const { me, rename } = useAccount();
   const [language, setLanguage] = useState<LanguageCode>("en");
   const [level, setLevel] = useState<Level>("beginner");
   const [title, setTitle] = useState("");

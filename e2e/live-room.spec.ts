@@ -41,7 +41,15 @@ async function newPage(browser: Browser, label: string): Promise<Page> {
   return page;
 }
 
-/** Rename the current guest account through the lobby's inline editor. */
+/** First visit shows the welcome screen; "Continue as guest" creates the account. */
+async function continueAsGuest(page: Page): Promise<void> {
+  await expect(page.getByTestId("welcome-screen")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("google-login")).toBeDisabled();
+  await page.getByTestId("guest-continue").click();
+  await expect(page.getByTestId("welcome-screen")).toHaveCount(0, { timeout: 20_000 });
+}
+
+/** Rename the current guest account through the inline editor (lobby, create page, join screen). */
 async function renameVia(page: Page, name: string): Promise<void> {
   await page.getByTestId("rename-btn").click();
   await page.getByTestId("rename-input").fill(name);
@@ -53,17 +61,30 @@ const room = (page: Page) => page.getByTestId("room");
 
 async function meId(context: BrowserContext): Promise<string> {
   const res = await context.request.get("/api/me");
+  const user = ((await res.json()) as { user: { id: string } | null }).user;
+  if (!user) throw new Error("no account in this context");
+  return user.id;
+}
+
+async function apiGuest(context: BrowserContext): Promise<string> {
+  const res = await context.request.post("/api/auth/guest");
+  expect([200, 201]).toContain(res.status());
   return ((await res.json()) as { user: { id: string } }).user.id;
 }
 
 test.describe.configure({ mode: "serial" });
 
-test("guest accounts: created on first visit, persisted by cookie, renamable", async ({ browser }) => {
+test("guest accounts: welcome screen, continue as guest, persisted by cookie, renamable", async ({ browser }) => {
   const page = await newPage(browser, "guest");
+  // Nothing is created before the user chooses to continue.
+  const before = await page.context().request.get("/api/me");
+  expect(((await before.json()) as { user: unknown }).user).toBeNull();
   await page.goto("/");
+  await continueAsGuest(page);
   const name = await page.getByTestId("me-name").textContent();
   expect(name?.trim().split(" ")).toHaveLength(2); // "Curious Heron" style
   await page.reload();
+  await expect(page.getByTestId("welcome-screen")).toHaveCount(0); // cookie skips the welcome screen
   await expect(page.getByTestId("me-name")).toHaveText(name!.trim());
   await renameVia(page, "Hana");
   await page.reload();
@@ -77,6 +98,9 @@ test("guest accounts: created on first visit, persisted by cookie, renamable", a
 test("host actions require the host's own session", async ({ browser }) => {
   const host = await browser.newContext();
   const stranger = await browser.newContext();
+  const unauthenticated = await host.request.post("/api/rooms", { data: { title: "Auth check", language: "en", level: "beginner" } });
+  expect(unauthenticated.status()).toBe(401); // no account yet
+  await apiGuest(host);
   const created = await host.request.post("/api/rooms", { data: { title: "Auth check", language: "en", level: "beginner" } });
   expect(created.status()).toBe(201);
   const { room: info } = (await created.json()) as { room: { id: string; host: { identity: string } } };
@@ -85,7 +109,7 @@ test("host actions require the host's own session", async ({ browser }) => {
   const anonymous = await browser.newContext();
   const noSession = await anonymous.request.post(`/api/rooms/${info.id}/host`, { data: { action: "end" } });
   expect(noSession.status()).toBe(401);
-  await stranger.request.get("/api/me"); // creates another guest
+  await apiGuest(stranger);
   const otherUser = await stranger.request.post(`/api/rooms/${info.id}/host`, { data: { action: "end" } });
   expect(otherUser.status()).toBe(403);
   const invitesForbidden = await stranger.request.post(`/api/rooms/${info.id}/invites`, { data: { toUserId: await meId(host) } });
@@ -104,6 +128,7 @@ test("full live room flow", async ({ browser, request }) => {
 
   // --- Host account + room ------------------------------------------------------
   await host.goto("/");
+  await continueAsGuest(host);
   await renameVia(host, "Hana");
   await host.getByTestId("create-room-link").click();
   await host.waitForURL(/\/create/);
@@ -116,7 +141,8 @@ test("full live room flow", async ({ browser, request }) => {
   const roomId = new URL(host.url()).pathname.split("/").pop()!;
 
   await expect(host.getByTestId("gate-title")).toHaveText("Evening English");
-  await expect(host.getByTestId("join-name")).toHaveValue("Hana");
+  await expect(host.getByTestId("join-name")).toHaveCount(0); // no per-session name box
+  await expect(host.getByTestId("me-name")).toHaveText("Hana");
   await expect(host.getByTestId("join-btn")).toHaveText("Start as host");
   await host.getByTestId("join-btn").click();
   await expect(room(host)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
@@ -128,6 +154,7 @@ test("full live room flow", async ({ browser, request }) => {
 
   // --- Lobby: room listed, host shown online inside it ---------------------------
   await learner.goto("/");
+  await continueAsGuest(learner);
   const card = learner.locator(`[data-testid="room-card"][data-room-id="${roomId}"]`);
   await expect(card).toBeVisible({ timeout: 20_000 });
   await expect(card).toContainText("Evening English");
@@ -141,7 +168,7 @@ test("full live room flow", async ({ browser, request }) => {
   // --- Learner joins as listener --------------------------------------------------
   await card.click();
   await learner.waitForURL(new RegExp(`/room/${roomId}`));
-  await learner.getByTestId("join-name").fill("Minh");
+  await renameVia(learner, "Minh"); // the join screen shows the account name with an inline Change
   await expect(learner.getByTestId("join-btn")).toHaveText("Join and listen");
   await learner.getByTestId("join-btn").click();
   await expect(room(learner)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
@@ -173,13 +200,19 @@ test("full live room flow", async ({ browser, request }) => {
   await learner.getByTestId("hand-btn").click();
   await expect(learner.getByTestId("hand-btn")).toHaveText(/Lower hand/, { timeout: 15_000 });
   await expect(learner.getByTestId("hand-prompt")).toBeVisible();
+  // The learner sees themselves first in the queue.
+  await expect(learner.getByTestId("hands-row").first()).toHaveAttribute("data-identity", learnerIdentity, { timeout: 15_000 });
 
-  await host.getByTestId("people-btn").click();
-  const learnerRow = host.locator(`[data-testid="person-row"][data-identity="${learnerIdentity}"]`);
-  await expect(learnerRow).toHaveAttribute("data-hand", "true", { timeout: 15_000 });
-  await learnerRow.getByTestId("invite-btn").click();
+  // The host sees the raised hand in the room itself, without opening People, and invites from there.
+  const queueRow = host.locator(`[data-testid="hands-row"][data-identity="${learnerIdentity}"]`);
+  await expect(queueRow).toBeVisible({ timeout: 15_000 });
+  await expect(host.getByTestId("hands-badge")).toHaveText(/1/);
+  await queueRow.getByTestId("hands-invite-btn").click();
+  await expect(host.getByTestId("hands-queue")).toHaveCount(0, { timeout: 15_000 }); // hand cleared on invite
 
   await expect(learner.getByTestId("on-stage-prompt")).toBeVisible({ timeout: 20_000 });
+  await host.getByTestId("people-btn").click();
+  const learnerRow = host.locator(`[data-testid="person-row"][data-identity="${learnerIdentity}"]`);
   await expect(room(learner)).toHaveAttribute("data-role", "speaker");
   await learner.getByTestId("mic-btn").click(); // Turn on mic
   await expect(learner.getByTestId("mic-btn")).toHaveText(/Mute/, { timeout: 20_000 });
@@ -235,6 +268,7 @@ test("host invites someone from the lobby; they get the invite and join", async 
   const guest = await newPage(browser, "guest2");
 
   await host.goto("/");
+  await continueAsGuest(host);
   await renameVia(host, "Hana");
   await host.goto("/create");
   await host.getByTestId("create-title").fill("Invite me");
@@ -244,8 +278,16 @@ test("host invites someone from the lobby; they get the invite and join", async 
   await host.getByTestId("join-btn").click();
   await expect(room(host)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
 
+  // A stranger opening the room link gets the welcome screen first, then the join screen.
+  const stranger = await newPage(browser, "stranger");
+  await stranger.goto(`/room/${roomId}`);
+  await continueAsGuest(stranger);
+  await expect(stranger.getByTestId("gate-title")).toHaveText("Invite me", { timeout: 20_000 });
+  await stranger.context().close();
+
   // Guest browses the lobby (becomes "online, in the lobby").
   await guest.goto("/");
+  await continueAsGuest(guest);
   await renameVia(guest, "Linh");
   const guestId = await meId(guest.context());
 
@@ -265,7 +307,7 @@ test("host invites someone from the lobby; they get the invite and join", async 
   await guest.getByTestId("invite-join").click();
   await guest.waitForURL(new RegExp(`/room/${roomId}`), { timeout: 20_000 });
   await expect(guest.getByTestId("gate-title")).toHaveText("Invite me");
-  await expect(guest.getByTestId("join-name")).toHaveValue("Linh");
+  await expect(guest.getByTestId("me-name")).toHaveText("Linh");
   await guest.getByTestId("join-btn").click();
   await expect(room(guest)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
   await expect(host.getByTestId("people-btn")).toContainText("2", { timeout: 20_000 });

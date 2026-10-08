@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { AccountShell } from "@/web/account/AccountShell";
 
 const LiveRoomPage = dynamic(() => import("@/web/live/LiveRoomPage").then((m) => m.LiveRoomPage), {
   ssr: false,
@@ -12,5 +13,9 @@ const LiveRoomPage = dynamic(() => import("@/web/live/LiveRoomPage").then((m) =>
 });
 
 export function RoomClient({ roomId }: { roomId: string }) {
-  return <LiveRoomPage roomId={roomId} />;
+  return (
+    <AccountShell>
+      <LiveRoomPage roomId={roomId} />
+    </AccountShell>
+  );
 }

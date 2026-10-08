@@ -1,6 +1,6 @@
 import { presenceSchema } from "@/core/lobby-model";
 import { createLogger, databaseFailure, readJson, zodDetails } from "@/server/api-helpers";
-import { getOrCreateUser, withSetCookie } from "@/server/auth";
+import { getUser } from "@/server/auth";
 import { apiError, apiJson } from "@/server/http";
 import { touchPresence } from "@/server/users";
 
@@ -16,9 +16,10 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = presenceSchema.safeParse(body.json);
   if (!parsed.success) return apiError(400, "invalid-request", "Invalid presence update.", zodDetails(parsed.error));
   try {
-    const { user, setCookie } = await getOrCreateUser(request);
+    const user = await getUser(request);
+    if (!user) return apiError(401, "unauthenticated", "Sign in first.");
     await touchPresence(user.id, parsed.data.location);
-    return withSetCookie(apiJson({ ok: true }), setCookie);
+    return apiJson({ ok: true });
   } catch (err) {
     return databaseFailure(log, "presence.failed", err);
   }

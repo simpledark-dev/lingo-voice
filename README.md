@@ -17,12 +17,14 @@ The repository has two layers:
 |---|---|
 | `/` lobby | Lists every room that is live right now (title, language, level, host, how many people are inside). Refreshes every 5 s. |
 | `/create` | Host picks language, level, title and a reading passage (built-in library in 8 languages and 3 levels, or custom text). |
-| `/room/<id>` | The live room. Listeners hear the stage, chat, react and raise a hand. The host invites learners to speak, changes the passage, mutes or removes people, moderates chat, ends the room. |
+| `/room/<id>` | The live room. Listeners hear the stage, chat, react and raise a hand. Raised hands show up in a "Wants to speak" queue in the room itself (and as a badge on the People button); the host invites from there, changes the passage, mutes or removes people, moderates chat, ends the room. |
 
-Everyone has an **account**. For now that is a guest account: the first visit creates a user in the
-database with a generated name such as "Curious Heron" and sets an httpOnly session cookie; the name can be
-changed anywhere it is shown. Email sign-up later attaches to the same user row. The lobby also shows **who is
-online** (and in which room) and lets a host **invite** people from the lobby into their room.
+Everyone has an **account**. The first visit shows a welcome screen with **Continue as guest** (and a
+disabled "Continue with Google · Coming soon"). Continuing creates a user in the database with a generated
+name such as "Curious Heron" and sets an httpOnly session cookie; nothing is created until the person chooses
+to continue. The name can be changed anywhere it is shown, including on the join screen, and it is the one
+name used everywhere. Email or Google sign-in later attaches to the same user row. The lobby also shows
+**who is online** (and in which room) and lets a host **invite** people from the lobby into their room.
 
 Roles inside a room:
 
@@ -52,8 +54,9 @@ metadata.
 
 ### Accounts and host authority
 
-`GET /api/me` creates a guest user on first contact and sets the `lingo_session` cookie (httpOnly, SameSite=Lax,
-one year; `Secure` on HTTPS). Native clients can send the same token as `Authorization: Bearer`. The user id is
+`POST /api/auth/guest` creates a guest user and sets the `lingo_session` cookie (httpOnly, SameSite=Lax, one
+year; `Secure` on HTTPS); `GET /api/me` only reports the current account (`{ user: null }` when signed out) and
+every other account-bound endpoint answers 401 without a session. Native clients can send the same token as `Authorization: Bearer`. The user id is
 also the LiveKit identity, so one account in two tabs behaves like one person (the newer tab takes over).
 A room's host is the user who created it; `POST /api/rooms/<id>/host` and the invite endpoints check that the
 signed-in user is that host. Every moderation action is applied by the server through LiveKit (permissions,
@@ -82,7 +85,8 @@ and the handful of SQL statements in `users.ts` / `invites.ts`; the rest of the 
 | `GET /api/rooms/:id/lobby-people` (host) | people in the lobby right now, with pending-invite state |
 | `POST /api/rooms/:id/invites` (host) | invite a lobby user → they see it on their next lobby poll |
 | `POST /api/invites/:id` | `accept` or `decline` (invitee only) |
-| `GET /api/me`, `PATCH /api/me` | current account (created on first call), rename |
+| `POST /api/auth/guest` | continue as guest: creates the account and the session cookie |
+| `GET /api/me`, `PATCH /api/me` | current account (or `null`), rename |
 | `GET /api/lobby` | rooms + online people + my pending invites; also my presence heartbeat for "lobby" |
 | `POST /api/presence` | heartbeat with `location: "lobby"` or a room id |
 | `POST /api/token` | join token; identity = account id, role decided from the room (host → host, on the stage list → speaker, else listener) |
@@ -317,8 +321,8 @@ mute propagation, signal reconnect, forced full reconnect, offline → online, s
 auto-rejoin with fresh token, refresh without duplicates, leave/join, listener role, permission denied → recovery,
 duplicate identity, muted participants send nothing audible.
 
-`e2e/live-room.spec.ts` drives the product with real guest accounts (throwaway SQLite file): guest created on
-first visit and kept by cookie, rename; host creates a room → it appears in the lobby and the host shows as
+`e2e/live-room.spec.ts` drives the product with real guest accounts (throwaway SQLite file): welcome screen →
+continue as guest, account kept by cookie, rename; raised hand visible to the host in the room's queue; host creates a room → it appears in the lobby and the host shows as
 online inside it → learner joins as listener and hears the host → chat both ways → reaction → raise hand →
 host invites → learner turns on the mic and the host hears them → host deletes a message, changes the passage,
 removes the learner from stage, mutes their chat → host ends the room from the header button. A second flow
@@ -453,7 +457,7 @@ Errors: `400 invalid-json | invalid-request`, `500 server-misconfigured | token-
 
 ## What is deliberately not here yet
 
-Email sign-up and sign-in (guest accounts are the first step; the `users` table already has `kind` and `email`),
+Google / email sign-in (the welcome screen has the disabled button; the `users` table already has `kind` and `email`),
 persistent chat and room history, scheduled or recurring rooms, profiles and progress, rate limiting on the
 public endpoints, recording, analytics, and push notifications. The room model is designed so these land on
 top without touching the RTC layer.

@@ -1,6 +1,6 @@
 import type { ParticipantRole } from "@/core/types";
 import { tokenRequestSchema } from "@/core/validation";
-import { getOrCreateUser, withSetCookie } from "@/server/auth";
+import { getUser } from "@/server/auth";
 import { ConfigError, loadServerEnv } from "@/server/env";
 import { apiError, apiJson } from "@/server/http";
 import { createLogger, errorFields } from "@/server/logger";
@@ -57,7 +57,6 @@ export async function POST(request: Request): Promise<Response> {
     let role: ParticipantRole | undefined = parsed.data.role;
     let chatMuted = false;
     let productRoom = false;
-    let setCookie: string | null = null;
 
     // Product rooms: identity is the account id and the role is decided server-side.
     // Plain diagnostics sessions (/s/...) keep the client-proposed identity and role.
@@ -67,10 +66,10 @@ export async function POST(request: Request): Promise<Response> {
     });
     if (found) {
       productRoom = true;
-      const auth = await getOrCreateUser(request);
-      setCookie = auth.setCookie;
-      identity = auth.user.id;
-      if (auth.user.displayName !== displayName) await updateDisplayName(auth.user.id, displayName);
+      const user = await getUser(request);
+      if (!user) return apiError(401, "unauthenticated", "Sign in first (continue as guest) before joining a room.");
+      identity = user.id;
+      if (user.displayName !== displayName) await updateDisplayName(user.id, displayName);
       const { metadata } = found;
       if (metadata.host.identity === identity) role = "host";
       else if (metadata.stage.includes(identity)) role = "speaker";
@@ -89,7 +88,7 @@ export async function POST(request: Request): Promise<Response> {
       ttlSeconds: env.LIVEKIT_TOKEN_TTL_SECONDS,
       userAgent: request.headers.get("user-agent") ?? undefined,
     });
-    return withSetCookie(apiJson(response), setCookie);
+    return apiJson(response);
   } catch (err) {
     log.error("token.failed", { requestId, ...errorFields(err) });
     return apiError(500, "token-failed", "Could not create a join token.");

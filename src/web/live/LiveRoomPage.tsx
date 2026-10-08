@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { languageLabel, type RoomDetails } from "@/core/room-model";
-import { useMe } from "@/web/hooks/useMe";
+import { useAccount } from "@/web/account/AccountProvider";
 import { usePresenceHeartbeat } from "@/web/hooks/usePresence";
+import { NameEditor } from "@/web/lobby/NameEditor";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { RoomShell } from "./RoomShell";
@@ -37,16 +38,10 @@ function EndScreen({ title, body, testId, action }: { title: string; body: strin
 export function LiveRoomPage({ roomId }: { roomId: string }) {
   const router = useRouter();
   const live = useLiveRoom(roomId);
-  const { me, rename } = useMe();
+  const { me, rename } = useAccount();
   const [details, setDetails] = useState<DetailsState>({ kind: "loading" });
-  const [name, setName] = useState("");
-  const [nameTouched, setNameTouched] = useState(false);
   const [joined, setJoined] = useState(false);
   usePresenceHeartbeat(joined ? roomId : null);
-
-  useEffect(() => {
-    if (me && !nameTouched) setName(me.displayName);
-  }, [me, nameTouched]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,24 +107,15 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
   const room = details.room;
   const asHost = Boolean(me && room.host.identity === me.id);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed || !me) return;
+  const join = () => {
+    if (!me) return;
     setJoined(true);
-    if (trimmed !== me.displayName) {
-      try {
-        await rename(trimmed);
-      } catch {
-        // The token request also updates the name; keep going.
-      }
-    }
-    void live.join(trimmed, me.id);
+    void live.join(me.displayName, me.id);
   };
 
   return (
     <main className="lv-page lv-center">
-      <form className="lv-card lv-gate" onSubmit={submit}>
+      <div className="lv-card lv-gate">
         <Link href="/" className="lv-backlink">
           <Icon name="chevron-left" size={16} /> All rooms
         </Link>
@@ -152,28 +138,17 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
             <dd>{room.passage?.title ?? "Not chosen yet"}</dd>
           </div>
         </dl>
-        <label>
-          Your name
-          <input
-            data-testid="join-name"
-            value={name}
-            maxLength={40}
-            onChange={(e) => {
-              setNameTouched(true);
-              setName(e.target.value);
-            }}
-            placeholder="How should people see you?"
-            autoComplete="nickname"
-            required
-          />
-        </label>
-        <button type="submit" className="lv-btn lv-btn-primary lv-btn-large" data-testid="join-btn" disabled={!name.trim() || !me}>
+        <div className="lv-gate-identity">
+          <span className="lv-muted lv-small">Joining as</span>
+          <NameEditor me={me} onRename={rename} />
+        </div>
+        <button type="button" className="lv-btn lv-btn-primary lv-btn-large" data-testid="join-btn" disabled={!me} onClick={join}>
           {asHost ? "Start as host" : "Join and listen"}
         </button>
         <p className="lv-muted lv-small">
           {asHost ? "Your microphone turns on when you start. Learners raise their hand; you invite them to read." : "You join as a listener. Raise your hand when you want to read, and the host will invite you to speak."}
         </p>
-      </form>
+      </div>
     </main>
   );
 }

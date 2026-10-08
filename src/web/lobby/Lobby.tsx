@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { InviteView, LobbyResponse } from "@/core/lobby-model";
 import { languageLabel } from "@/core/room-model";
+import { useAccount } from "@/web/account/AccountProvider";
 import { Avatar } from "@/web/live/Avatar";
 import { Icon } from "@/web/live/Icon";
 import { NameEditor } from "./NameEditor";
@@ -35,6 +36,7 @@ function InviteBanner({ invite, onRespond }: { invite: InviteView; onRespond: (i
 
 export function Lobby() {
   const router = useRouter();
+  const account = useAccount();
   const [state, setState] = useState<LobbyState>({ kind: "loading" });
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -42,6 +44,10 @@ export function Lobby() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/lobby", { cache: "no-store" });
+      if (res.status === 401) {
+        void account.refresh(); // session vanished: the account gate takes over
+        return;
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
@@ -51,7 +57,7 @@ export function Lobby() {
     } catch (err) {
       setState((prev) => (prev.kind === "ready" ? prev : { kind: "error", message: err instanceof Error ? err.message : "Could not load the lobby" }));
     }
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +79,7 @@ export function Lobby() {
   }, [load]);
 
   const rename = async (name: string) => {
-    const res = await fetch("/api/me", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName: name }) });
-    if (!res.ok) throw new Error("Could not change your name");
+    await account.rename(name);
     await load();
   };
 
@@ -99,7 +104,7 @@ export function Lobby() {
           <div className="lv-wordmark">Lingo</div>
           <h1>Live practice rooms</h1>
           <p className="lv-muted">Listen, react, raise your hand, and read aloud with a host who gives feedback.</p>
-          <NameEditor me={data?.me ?? null} onRename={rename} />
+          <NameEditor me={account.me} onRename={rename} />
         </div>
         <div className="lv-lobby-actions">
           <button className="lv-btn lv-online-toggle" onClick={() => setPeopleOpen(true)} data-testid="online-toggle" aria-label="People online">

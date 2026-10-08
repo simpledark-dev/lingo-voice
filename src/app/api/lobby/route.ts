@@ -1,8 +1,8 @@
 import type { InviteView, LobbyResponse, OnlineUser } from "@/core/lobby-model";
 import type { RoomSummary } from "@/core/room-model";
 import { createLogger, databaseFailure, roomService } from "@/server/api-helpers";
-import { getOrCreateUser, withSetCookie } from "@/server/auth";
-import { apiJson } from "@/server/http";
+import { getUser } from "@/server/auth";
+import { apiError, apiJson } from "@/server/http";
 import { errorFields } from "@/server/logger";
 import { listPendingInvitesFor } from "@/server/invites";
 import { getUsersByIds, listOnlineUsers, toPublicUser, touchPresence } from "@/server/users";
@@ -17,14 +17,14 @@ const log = createLogger("api.lobby");
  * caller's presence heartbeat: live rooms, who is online (and where), pending invites.
  */
 export async function GET(request: Request): Promise<Response> {
-  let auth;
+  let user;
   try {
-    auth = await getOrCreateUser(request);
-    await touchPresence(auth.user.id, "lobby");
+    user = await getUser(request);
+    if (!user) return apiError(401, "unauthenticated", "Sign in first.");
+    await touchPresence(user.id, "lobby");
   } catch (err) {
     return databaseFailure(log, "lobby.auth-failed", err);
   }
-  const { user, setCookie } = auth;
 
   let rooms: RoomSummary[] = [];
   let roomsError: string | null = null;
@@ -68,7 +68,7 @@ export async function GET(request: Request): Promise<Response> {
     }));
 
     const body: LobbyResponse = { me: toPublicUser(user), rooms, roomsError, online, onlineCount: online.length, invites };
-    return withSetCookie(apiJson(body), setCookie);
+    return apiJson(body);
   } catch (err) {
     return databaseFailure(log, "lobby.failed", err);
   }
