@@ -190,6 +190,11 @@ Krisp-based enhanced noise cancellation can be added later with one package if n
 - **Mic indicator while muted**: the capture stays alive while muted (instant unmute, fewer iOS re-prompts),
   so the browser's "microphone in use" indicator stays on. Change `stopMicTrackOnMute` in
   `src/core/room-options.ts` if that becomes a product problem.
+- **What "muted" sends**: measured with two clients, a muted participant emits only Opus DTX keep-alives
+  (about 5 tiny packets/s, under 1 kbps, pure silence) and the server forwards **nothing** of it to others
+  (0 packets/s received). So the "sent" packet counter still creeps up while muted; the other side's
+  "received" counter must stay flat. `e2e/mute-traffic.spec.ts` guards this. Billing still counts the
+  connected minutes while muted.
 - **Duplicated tabs** copy `sessionStorage` on some browsers, so the duplicate kicks the original with a clear
   message. Two *separately opened* tabs get different identities and can be used for local testing.
 - **Android Chrome** keeps WebRTC alive in the background with a notification; memory pressure can still kill the
@@ -227,14 +232,14 @@ duplicate identity.
 ### What has been verified so far (2026-10-08)
 
 Automated, on this machine, against `livekit-server` 1.13.9 and Chromium with a generated speech-like signal
-as microphone (`pnpm test` 26 unit tests, `pnpm test:e2e` 14 scenarios, all green):
+as microphone (`pnpm test` 26 unit tests, `pnpm test:e2e` 15 scenarios, all green):
 
 | Milestone | Evidence |
 |---|---|
 | M1 secure tokens | grants per role verified by `TokenVerifier`; wrong secret rejected; TTL honoured; secret absent from responses; env misconfiguration returns a clean 500 |
 | M2 presence | two separate browser contexts join the same session and list each other |
 | M3 real audio | each side receives the other's audio: ~53 kbps per stream (32 kbps Opus + RED/RTP overhead), decoded audio energy > 0, server marks the talker as active speaker |
-| M4 state | mute/unmute reflected on the other side within ~1 s; speaking indicator follows the talker |
+| M4 state | mute/unmute reflected on the other side within ~1 s; speaking indicator follows the talker; while muted the publisher sends under 1 kbps of DTX keep-alives and the other side receives 0 packets |
 | M5 reliability | signal drop → resumed in ~2 s; forced full reconnect → recovered in ~4 s; offline for several seconds → recovered by the SDK on reconnect; server-side disconnect → automatic rejoin with a fresh token in ~3 s; refresh → same identity back in ~2.5 s, no duplicate; clean leave → removed immediately; killed tab → removed by the server after ~21 s |
 | Roles | listener cannot publish, hears everyone |
 | Mic failures | permission denied keeps the user connected as listener; **Retry mic** recovers without rejoining |

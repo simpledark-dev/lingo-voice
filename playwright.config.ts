@@ -42,7 +42,8 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: `pnpm exec next dev -p ${PORT}`,
+      // Override with E2E_SERVER_CMD, e.g. "pnpm exec next start -p 3100" when a dev server is already running.
+      command: process.env.E2E_SERVER_CMD ?? `pnpm exec next dev -p ${PORT}`,
       url: `${BASE_URL}/api/health`,
       reuseExistingServer: true,
       timeout: 180_000,
