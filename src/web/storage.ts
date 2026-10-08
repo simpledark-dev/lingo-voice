@@ -42,29 +42,3 @@ export function saveDisplayName(name: string): void {
   }
 }
 
-const HOST_KEY_PREFIX = "lingo-voice.hostKey.";
-
-/** Host keys are kept per room so the host keeps control after a reload or in a new tab. */
-export function saveHostKey(roomId: string, key: string): void {
-  try {
-    window.localStorage.setItem(HOST_KEY_PREFIX + roomId, key);
-  } catch {
-    // ignore
-  }
-}
-
-export function loadHostKey(roomId: string): string | null {
-  try {
-    return window.localStorage.getItem(HOST_KEY_PREFIX + roomId);
-  } catch {
-    return null;
-  }
-}
-
-export function clearHostKey(roomId: string): void {
-  try {
-    window.localStorage.removeItem(HOST_KEY_PREFIX + roomId);
-  } catch {
-    // ignore
-  }
-}

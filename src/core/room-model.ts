@@ -47,9 +47,8 @@ export const roomMetadataSchema = z.object({
   title: z.string().trim().min(1).max(80),
   language: languageSchema,
   level: levelSchema,
+  /** The host's user id (also their LiveKit identity) and display name. */
   host: z.object({ identity: identitySchema, name: displayNameSchema }),
-  /** SHA-256 hex of the host key. Readable by participants, useless without the key. */
-  hostKeyHash: z.string().min(32),
   passage: passageSchema.nullable(),
   /** Identities currently invited on stage (host excluded). */
   stage: z.array(identitySchema).max(50),
@@ -85,7 +84,7 @@ export function stageRoleOf(identity: string, metadata: RoomMetadata | null, can
   return "listener";
 }
 
-/** What the lobby shows. Never includes the host key hash. */
+/** What the lobby shows. */
 export interface RoomSummary {
   id: string;
   title: string;
@@ -125,9 +124,6 @@ export const createRoomRequestSchema = z.object({
   title: z.string().trim().min(1).max(80),
   language: languageSchema,
   level: levelSchema,
-  hostName: displayNameSchema,
-  /** Stable identity of the creating device, so the host keeps it across reloads. */
-  hostIdentity: identitySchema.optional(),
   /** A library passage id, or a custom passage. Defaults to the library default for language/level. */
   passageId: z.string().min(1).max(64).optional(),
   customPassage: z.object({ title: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(4000) }).optional(),
@@ -136,8 +132,6 @@ export type CreateRoomRequest = z.infer<typeof createRoomRequestSchema>;
 
 export interface CreateRoomResponse {
   room: RoomDetails;
-  hostKey: string;
-  hostIdentity: string;
 }
 
 export const hostActionSchema = z.discriminatedUnion("action", [

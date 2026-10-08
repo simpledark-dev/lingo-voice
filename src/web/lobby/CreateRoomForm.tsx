@@ -6,11 +6,12 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { passagesFor } from "@/core/passages";
 import { LANGUAGES, LEVELS, languageLabel, type CreateRoomResponse, type LanguageCode, type Level } from "@/core/room-model";
 import { Icon } from "@/web/live/Icon";
-import { getOrCreateIdentity, loadDisplayName, saveDisplayName, saveHostKey } from "@/web/storage";
+import { useMe } from "@/web/hooks/useMe";
+import { NameEditor } from "./NameEditor";
 
 export function CreateRoomForm() {
   const router = useRouter();
-  const [name, setName] = useState("");
+  const { me, rename } = useMe();
   const [language, setLanguage] = useState<LanguageCode>("en");
   const [level, setLevel] = useState<Level>("beginner");
   const [title, setTitle] = useState("");
@@ -20,10 +21,6 @@ export function CreateRoomForm() {
   const [customText, setCustomText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setName(loadDisplayName() ?? "");
-  }, []);
 
   const options = useMemo(() => passagesFor(language), [language]);
   useEffect(() => {
@@ -38,12 +35,10 @@ export function CreateRoomForm() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const hostName = name.trim();
-    if (!hostName) return setError("Please enter your name.");
+    if (!me) return setError("Still signing you in, try again in a second.");
     if (passageId === "custom" && (!customTitle.trim() || !customText.trim())) return setError("Give your custom passage a title and some text.");
     setBusy(true);
     try {
-      saveDisplayName(hostName);
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -51,8 +46,6 @@ export function CreateRoomForm() {
           title: effectiveTitle.trim() || suggestedTitle,
           language,
           level,
-          hostName,
-          hostIdentity: getOrCreateIdentity(),
           ...(passageId === "custom" ? { customPassage: { title: customTitle.trim(), text: customText.trim() } } : { passageId }),
         }),
       });
@@ -61,7 +54,6 @@ export function CreateRoomForm() {
         throw new Error(body?.error?.message ?? `Could not create the room (${res.status})`);
       }
       const body = (await res.json()) as CreateRoomResponse;
-      saveHostKey(body.room.id, body.hostKey);
       router.push(`/room/${body.room.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the room");
@@ -76,11 +68,10 @@ export function CreateRoomForm() {
       </Link>
       <h1>Create a room</h1>
       <p className="lv-muted">You host: pick the passage, invite learners to read, and give feedback.</p>
+      <div className="lv-hosting-as">
+        <NameEditor me={me} onRename={rename} />
+      </div>
       <form className="lv-card lv-form" onSubmit={submit}>
-        <label>
-          Your name
-          <input data-testid="create-name" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="Shown as the host" required />
-        </label>
         <div className="lv-form-row">
           <label>
             Language
@@ -153,7 +144,7 @@ export function CreateRoomForm() {
             <Icon name="alert" size={16} /> <span>{error}</span>
           </div>
         )}
-        <button type="submit" className="lv-btn lv-btn-primary lv-btn-large" data-testid="create-submit" disabled={busy}>
+        <button type="submit" className="lv-btn lv-btn-primary lv-btn-large" data-testid="create-submit" disabled={busy || !me}>
           {busy ? "Creating…" : "Create and open room"}
         </button>
       </form>

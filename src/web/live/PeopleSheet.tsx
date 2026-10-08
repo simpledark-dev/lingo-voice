@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { LobbyPerson } from "@/core/lobby-model";
 import { ActionMenu, type MenuItem } from "./ActionMenu";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -35,6 +36,68 @@ function Row({ p, host, onMenu }: { p: LiveParticipant; host: HostControls | nul
         )
       )}
     </li>
+  );
+}
+
+/** Host only: people in the lobby right now, with one-tap invites. Refreshes while open. */
+function InviteFromLobby({ host }: { host: HostControls }) {
+  const [people, setPeople] = useState<LobbyPerson[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      host
+        .fetchLobbyPeople()
+        .then((list) => !cancelled && (setPeople(list), setError(null)))
+        .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the lobby"));
+    void load();
+    const timer = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [host]);
+
+  const invite = async (id: string) => {
+    setSent((prev) => new Set(prev).add(id));
+    try {
+      await host.inviteFromLobby(id);
+    } catch {
+      setSent((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  return (
+    <>
+      <h3 className="lv-group-title">In the lobby · {people?.length ?? "…"}</h3>
+      {error && <p className="lv-small" style={{ color: "var(--lv-danger)" }}>{error}</p>}
+      {people && people.length === 0 && <p className="lv-muted lv-small">Nobody is waiting in the lobby right now.</p>}
+      {people && people.length > 0 && (
+        <ul className="lv-people" data-testid="lobby-people">
+          {people.map((p) => {
+            const invited = Boolean(p.invitedAt) || sent.has(p.id);
+            return (
+              <li key={p.id} className="lv-person" data-testid="lobby-person" data-user-id={p.id} data-invited={invited}>
+                <Avatar name={p.displayName} identity={p.id} size={36} />
+                <div className="lv-person-main">
+                  <div className="lv-person-name">{p.displayName}</div>
+                  <div className="lv-person-meta">{invited ? "Invited, waiting for them to join" : "In the lobby"}</div>
+                </div>
+                <button className="lv-btn lv-btn-small lv-btn-primary" data-testid="lobby-invite-btn" disabled={invited} onClick={() => void invite(p.id)}>
+                  {invited ? "Invited" : "Invite"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -98,6 +161,7 @@ export function PeopleSheet({ participants, host, onClose }: { participants: Liv
                 ))}
               </ul>
             )}
+            {host && <InviteFromLobby host={host} />}
           </div>
         </div>
       </div>

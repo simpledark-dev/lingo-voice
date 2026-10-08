@@ -19,15 +19,20 @@ The repository has two layers:
 | `/create` | Host picks language, level, title and a reading passage (built-in library in 8 languages and 3 levels, or custom text). |
 | `/room/<id>` | The live room. Listeners hear the stage, chat, react and raise a hand. The host invites learners to speak, changes the passage, mutes or removes people, moderates chat, ends the room. |
 
+Everyone has an **account**. For now that is a guest account: the first visit creates a user in the
+database with a generated name such as "Curious Heron" and sets an httpOnly session cookie; the name can be
+changed anywhere it is shown. Email sign-up later attaches to the same user row. The lobby also shows **who is
+online** (and in which room) and lets a host **invite** people from the lobby into their room.
+
 Roles inside a room:
 
-- **Host**: the creator. Speaks, and holds a secret *host key* that unlocks all moderation actions.
+- **Host**: the creator. Speaks, and moderates; authority comes from being the signed-in user recorded as the room's host.
 - **Speaker**: a learner the host invited. Can publish a microphone until removed from stage. Several speakers can be on stage at once.
 - **Listener**: everyone else. Hears the stage, chats, reacts, raises a hand.
 
-### How room state works (no database yet)
+### Where state lives
 
-Everything real-time rides on LiveKit, so there is nothing else to run:
+Real-time room state rides on LiveKit; accounts, presence and invites live in a small SQL database:
 
 | State | Where it lives | Who writes it |
 |---|---|---|
@@ -36,19 +41,35 @@ Everything real-time rides on LiveKit, so there is nothing else to run:
 | Who may publish audio / send chat | LiveKit **participant permissions** | our server only (`updateParticipant`) |
 | Raised hand | the participant's own LiveKit **attribute** `lingo.hand` | the participant |
 | Chat, reactions, message deletion | LiveKit **data messages** (`src/core/messages.ts`) | participants; deletes accepted only from the host identity |
+| Accounts (guest today, email later), sessions | SQL `users`, `sessions` (`src/server/db.ts`) | server |
+| Who is online and where | `users.last_seen_at` / `last_location`, heartbeat every 20 s, online = seen within 60 s | server, from `GET /api/lobby` and `POST /api/presence` |
+| Lobby invites | SQL `invites`, shown for 2 minutes while pending | host creates, invitee responds |
 
 Consequences worth knowing: rooms disappear from the lobby when empty (LiveKit closes them after 5 minutes
 without participants), chat is not persisted (late joiners receive the host's last 50 messages over a
 direct data message), and a learner who refreshes keeps their stage seat because the stage list is in
-metadata. A real database only becomes necessary for history, profiles and scheduled rooms.
+metadata.
 
-### Host authority without accounts
+### Accounts and host authority
 
-`POST /api/rooms` returns a random **host key** once; the browser keeps it in `localStorage` for that room
-and sends it as `x-host-key` on `POST /api/rooms/<id>/host`. The server stores only a SHA-256 hash in the room
-metadata. Every moderation action is applied by the server through LiveKit (permissions, metadata, mute,
-remove, delete room), so a client without the key cannot fake any of it. When accounts arrive, the key
-becomes "the authenticated user is the room's host" and nothing else changes.
+`GET /api/me` creates a guest user on first contact and sets the `lingo_session` cookie (httpOnly, SameSite=Lax,
+one year; `Secure` on HTTPS). Native clients can send the same token as `Authorization: Bearer`. The user id is
+also the LiveKit identity, so one account in two tabs behaves like one person (the newer tab takes over).
+A room's host is the user who created it; `POST /api/rooms/<id>/host` and the invite endpoints check that the
+signed-in user is that host. Every moderation action is applied by the server through LiveKit (permissions,
+metadata, mute, remove, delete room), so no client can fake any of it.
+
+### Database
+
+libSQL/SQLite through `@libsql/client`. Locally it is a file (`data/lingo.db`, created automatically, ignored
+by git); tests use an in-memory database; production uses **Turso** because Vercel has no persistent disk:
+
+1. Create a free database at https://turso.tech (dashboard or `turso db create lingo-voice`).
+2. Copy the `libsql://…turso.io` URL → `DATABASE_URL`, create a token → `DATABASE_AUTH_TOKEN`.
+3. Add both to Vercel's environment variables and redeploy. The schema is created on first use.
+
+Any libSQL-compatible server works the same way. Moving to Postgres later means swapping `src/server/db.ts`
+and the handful of SQL statements in `users.ts` / `invites.ts`; the rest of the app does not know the dialect.
 
 ### Product API (for a native client later)
 
@@ -57,10 +78,16 @@ becomes "the authenticated user is the room's host" and nothing else changes.
 | `GET /api/rooms` | live rooms for the lobby |
 | `POST /api/rooms` | create a room → `{ room, hostKey, hostIdentity }` |
 | `GET /api/rooms/:id` | details for the join screen (404 when not live) |
-| `POST /api/rooms/:id/host` + `x-host-key` | `set-passage`, `invite`, `remove-from-stage`, `mute`, `remove-participant`, `set-chat-muted`, `end` |
-| `POST /api/token` | join token; the server decides the role from the room (host key → host, on the stage list → speaker, else listener) |
+| `POST /api/rooms/:id/host` (host session) | `set-passage`, `invite`, `remove-from-stage`, `mute`, `remove-participant`, `set-chat-muted`, `end` |
+| `GET /api/rooms/:id/lobby-people` (host) | people in the lobby right now, with pending-invite state |
+| `POST /api/rooms/:id/invites` (host) | invite a lobby user → they see it on their next lobby poll |
+| `POST /api/invites/:id` | `accept` or `decline` (invitee only) |
+| `GET /api/me`, `PATCH /api/me` | current account (created on first call), rename |
+| `GET /api/lobby` | rooms + online people + my pending invites; also my presence heartbeat for "lobby" |
+| `POST /api/presence` | heartbeat with `location: "lobby"` or a room id |
+| `POST /api/token` | join token; identity = account id, role decided from the room (host → host, on the stage list → speaker, else listener) |
 
-Schemas for every payload are in `src/core/room-model.ts` and `src/core/messages.ts`.
+Schemas for every payload are in `src/core/room-model.ts`, `src/core/lobby-model.ts` and `src/core/messages.ts`.
 
 ## Quick start
 
@@ -73,7 +100,7 @@ Schemas for every payload are in `src/core/room-model.ts` and `src/core/messages
    - **API Secret** (shown once) → `LIVEKIT_API_SECRET`
 4. On the project overview page copy the **WebSocket URL** (looks like `wss://lingo-voice-abc123.livekit.cloud`) → `LIVEKIT_URL`.
 
-That is all the provider configuration this pass needs. Rooms are created automatically when the first participant joins.
+Rooms are created automatically when the first participant joins. For production you also need a database (see **Database** above); locally none is needed.
 
 ### 2. Run locally
 
@@ -127,6 +154,8 @@ HTTPS in front of it (microphone access requires a secure context).
 | `LIVEKIT_API_SECRET` | yes | server only | never shipped to the browser |
 | `LIVEKIT_TOKEN_TTL_SECONDS` | no (7200) | server only | tokens are checked at join; clients fetch a new one when rejoining |
 | `DEFAULT_PARTICIPANT_ROLE` | no (`speaker`) | server only | role when the client sends none |
+| `DATABASE_URL` | production yes (local default `file:./data/lingo.db`) | server only | Turso `libsql://…` URL in production |
+| `DATABASE_AUTH_TOKEN` | with Turso | server only | |
 | `LOG_LEVEL` | no (`info`) | server only | `debug` / `info` / `warn` / `error` |
 
 ## Using a session
@@ -175,18 +204,21 @@ src/
     token-client.ts     fetch-based token client (works in browsers and React Native)
     voice-session.ts    VoiceSession controller: join/leave/rejoin, mic, devices, data messages, attributes, state snapshot
     room-model.ts       product model: room metadata schema, roles, API payload schemas
+    lobby-model.ts      accounts, presence and invite shapes
+    guest-names.ts      generated guest names
     messages.ts         chat / reaction / moderation message codecs
     passages.ts         built-in reading passages (8 languages x 3 levels)
   server/               server only
     env.ts              env validation (never leaks values), health description
     token-service.ts    AccessToken minting from role permissions
     room-service.ts     rooms on LiveKit's admin API: create/list, stage, mute, remove, chat mute, end
-    host-auth.ts        host key generation / hashing / verification
+    db.ts, users.ts, auth.ts, invites.ts   SQLite/libSQL access, guest accounts, session cookies, invites
     logger.ts, http.ts  JSON logging, API error helpers
   app/                  Next.js routes
     page.tsx, create/   lobby and room creation
     room/[roomId]/      the live room (client-only)
-    api/rooms/...       room list, create, details, host actions
+    api/rooms/...       room list, create, details, host actions, lobby people, invites
+    api/me, api/lobby, api/presence, api/invites   accounts, lobby data + presence, invite responses
     api/token/route.ts  POST -> TokenResponse (role decided server-side for product rooms)
     api/health/route.ts GET  -> config sanity
     s/, s/[sessionId]/  voice diagnostics harness
@@ -285,11 +317,14 @@ mute propagation, signal reconnect, forced full reconnect, offline → online, s
 auto-rejoin with fresh token, refresh without duplicates, leave/join, listener role, permission denied → recovery,
 duplicate identity, muted participants send nothing audible.
 
-`e2e/live-room.spec.ts` drives the product with a host and a learner: create a room → it appears in the lobby →
-learner joins as listener and hears the host → chat both ways → reaction → raise hand → host invites → learner
-turns on the mic and the host hears them → host deletes a message, changes the passage, removes the learner
-from stage, mutes their chat → host ends the room and it leaves the lobby. It also checks that host actions
-without the key are rejected, that the host keeps control after a reload, and that a removed learner is told why.
+`e2e/live-room.spec.ts` drives the product with real guest accounts (throwaway SQLite file): guest created on
+first visit and kept by cookie, rename; host creates a room → it appears in the lobby and the host shows as
+online inside it → learner joins as listener and hears the host → chat both ways → reaction → raise hand →
+host invites → learner turns on the mic and the host hears them → host deletes a message, changes the passage,
+removes the learner from stage, mutes their chat → host ends the room from the header button. A second flow
+has the host invite someone browsing the lobby, who receives the invite banner, joins, and later is removed
+with an explanation; it also checks that host actions need the host's own session (401 without one, 403 for
+another user) and that the host keeps control after a reload.
 
 If a dev server is already running in this folder (Next allows one per directory), run the suite against a
 production build instead: `pnpm build && E2E_SERVER_CMD="pnpm exec next start -p 3100" pnpm test:e2e`.
@@ -418,8 +453,7 @@ Errors: `400 invalid-json | invalid-request`, `500 server-misconfigured | token-
 
 ## What is deliberately not here yet
 
-Accounts and authentication (the host key and the client-proposed identity stand in for them), persistent chat
-history and room history, scheduled or recurring rooms, profiles and progress, rate limiting on the public
-endpoints, recording, analytics, and push notifications. The room model is designed so these land on top
-without touching the RTC layer: identity and host authority move from "host key + device identity" to
-"authenticated user", everything else stays.
+Email sign-up and sign-in (guest accounts are the first step; the `users` table already has `kind` and `email`),
+persistent chat and room history, scheduled or recurring rooms, profiles and progress, rate limiting on the
+public endpoints, recording, analytics, and push notifications. The room model is designed so these land on
+top without touching the RTC layer.

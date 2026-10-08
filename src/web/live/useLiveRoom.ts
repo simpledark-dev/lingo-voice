@@ -19,9 +19,10 @@ import {
   type RoomMetadata,
   type StageRole,
 } from "@/core/room-model";
+import type { LobbyPerson } from "@/core/lobby-model";
 import type { ParticipantSnapshot, VoiceSession, VoiceSessionState } from "@/core/voice-session";
 import { useVoiceSession } from "@/web/hooks/useVoiceSession";
-import { getOrCreateIdentity, loadHostKey } from "@/web/storage";
+import { getOrCreateIdentity } from "@/web/storage";
 
 export interface LiveParticipant extends ParticipantSnapshot {
   stageRole: StageRole;
@@ -44,6 +45,9 @@ export interface HostControls {
   setChatMuted(identity: string, muted: boolean): Promise<void>;
   setPassage(passage: Passage): Promise<void>;
   end(): Promise<void>;
+  /** People currently in the lobby that the host can invite. */
+  fetchLobbyPeople(): Promise<LobbyPerson[]>;
+  inviteFromLobby(userId: string): Promise<void>;
 }
 
 export interface LiveRoom {
@@ -53,8 +57,7 @@ export interface LiveRoom {
   participants: LiveParticipant[];
   me: LiveParticipant | null;
   isHost: boolean;
-  hasHostKey: boolean;
-  join(displayName: string): Promise<void>;
+  join(displayName: string, identity?: string): Promise<void>;
   leave(): Promise<void>;
   chat: {
     messages: ChatEntry[];
@@ -97,7 +100,6 @@ function mergeHistory(list: ChatEntry[], history: ChatEntry[]): ChatEntry[] {
 export function useLiveRoom(roomId: string): LiveRoom {
   const { session, state } = useVoiceSession();
   const deviceIdentity = useMemo(() => getOrCreateIdentity(), []);
-  const hostKey = useMemo(() => loadHostKey(roomId), [roomId]);
   const metadata = useMemo(() => parseRoomMetadata(state.roomMetadata), [state.roomMetadata]);
   const isHost = state.local?.role === "host";
 
@@ -197,10 +199,11 @@ export function useLiveRoom(roomId: string): LiveRoom {
   }, [state.status]);
 
   const join = useCallback(
-    async (displayName: string) => {
-      await session.join({ sessionId: roomId, displayName, identity: deviceIdentity, hostKey: hostKey ?? undefined });
+    async (displayName: string, identity?: string) => {
+      // The server replaces the identity with the account id for product rooms.
+      await session.join({ sessionId: roomId, displayName, identity: identity ?? deviceIdentity });
     },
-    [session, roomId, deviceIdentity, hostKey],
+    [session, roomId, deviceIdentity],
   );
 
   const leave = useCallback(() => session.leave(), [session]);
@@ -273,14 +276,10 @@ export function useLiveRoom(roomId: string): LiveRoom {
 
   const hostAction = useCallback(
     async (action: HostAction) => {
-      if (!hostKey) {
-        setActionError("Only the host can do that");
-        return;
-      }
       try {
         const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/host`, {
           method: "POST",
-          headers: { "content-type": "application/json", "x-host-key": hostKey },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify(action),
         });
         if (!res.ok) {
@@ -292,12 +291,35 @@ export function useLiveRoom(roomId: string): LiveRoom {
         throw err;
       }
     },
-    [hostKey, roomId],
+    [roomId],
+  );
+
+  const fetchLobbyPeople = useCallback(async (): Promise<LobbyPerson[]> => {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/lobby-people`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Could not load people in the lobby (${res.status})`);
+    return ((await res.json()) as { people: LobbyPerson[] }).people;
+  }, [roomId]);
+
+  const inviteFromLobby = useCallback(
+    async (userId: string) => {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/invites`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toUserId: userId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        const message = body?.error?.message ?? `Could not send the invite (${res.status})`;
+        setActionError(message);
+        throw new Error(message);
+      }
+    },
+    [roomId],
   );
 
   const host = useMemo<HostControls | null>(
     () =>
-      isHost && hostKey
+      isHost
         ? {
             invite: (identity) => hostAction({ action: "invite", identity }),
             removeFromStage: (identity) => hostAction({ action: "remove-from-stage", identity }),
@@ -306,9 +328,11 @@ export function useLiveRoom(roomId: string): LiveRoom {
             setChatMuted: (identity, muted) => hostAction({ action: "set-chat-muted", identity, muted }),
             setPassage: (passage) => hostAction({ action: "set-passage", passage }),
             end: () => hostAction({ action: "end" }),
+            fetchLobbyPeople,
+            inviteFromLobby,
           }
         : null,
-    [isHost, hostKey, hostAction],
+    [isHost, hostAction, fetchLobbyPeople, inviteFromLobby],
   );
 
   return {
@@ -318,7 +342,6 @@ export function useLiveRoom(roomId: string): LiveRoom {
     participants,
     me,
     isHost,
-    hasHostKey: Boolean(hostKey),
     join,
     leave,
     chat: {

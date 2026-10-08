@@ -53,6 +53,7 @@ export default defineConfig({
         LIVEKIT_URL: "ws://127.0.0.1:7880",
         LIVEKIT_API_KEY: "devkey",
         LIVEKIT_API_SECRET: "secret",
+        DATABASE_URL: "file:./data/e2e.db",
         LOG_LEVEL: "warn",
       },
     },

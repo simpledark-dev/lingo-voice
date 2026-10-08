@@ -1140,3 +1140,156 @@ button.lv-stage-member:hover {
   color: var(--lv-hand);
   font-weight: 600;
 }
+
+/* Accounts, presence, invites */
+.lv-me {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.lv-me-edit input {
+  font: inherit;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--lv-line-strong);
+  width: 200px;
+}
+.lv-linkbtn {
+  border: 0;
+  background: transparent;
+  color: var(--lv-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.lv-hosting-as {
+  margin: 4px 0 14px;
+}
+.lv-lobby-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lv-online-toggle {
+  display: inline-flex;
+}
+.lv-lobby-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.lv-online-side {
+  display: none;
+}
+@media (min-width: 900px) {
+  .lv-lobby-grid {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+  .lv-online-toggle {
+    display: none;
+  }
+  .lv-online-side {
+    display: block;
+    position: sticky;
+    top: 16px;
+    background: var(--lv-surface);
+    border: 1px solid var(--lv-line);
+    border-radius: var(--lv-radius);
+    padding: 14px 14px 8px;
+    max-height: calc(100dvh - 48px);
+    overflow: auto;
+  }
+}
+.lv-online-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.lv-online-head h2 {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--lv-muted);
+  margin: 0;
+}
+.lv-online-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lv-online-person {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--lv-line);
+}
+.lv-online-person:last-child {
+  border-bottom: 0;
+}
+.lv-online-main {
+  min-width: 0;
+}
+.lv-online-name {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lv-online-where {
+  font-size: 12px;
+  color: var(--lv-muted);
+}
+.lv-invites {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.lv-invite {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--lv-accent-soft);
+  border: 1px solid #cfe5e0;
+  border-radius: var(--lv-radius);
+  flex-wrap: wrap;
+}
+.lv-invite-text {
+  flex: 1;
+  min-width: 160px;
+  font-size: 14px;
+}
+.lv-invite-actions {
+  display: flex;
+  gap: 6px;
+}
+.lv-btn-danger-ghost {
+  color: var(--lv-danger);
+  border-color: transparent;
+  background: transparent;
+}
+.lv-btn-danger-ghost:hover:not(:disabled) {
+  background: var(--lv-danger-soft);
+}
+.lv-end-btn {
+  display: none;
+}
+@media (min-width: 560px) {
+  .lv-end-btn {
+    display: inline-flex;
+  }
+}

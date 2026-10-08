@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { languageLabel, type RoomDetails } from "@/core/room-model";
-import { loadDisplayName, saveDisplayName } from "@/web/storage";
+import { useMe } from "@/web/hooks/useMe";
+import { usePresenceHeartbeat } from "@/web/hooks/usePresence";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { RoomShell } from "./RoomShell";
@@ -36,12 +37,18 @@ function EndScreen({ title, body, testId, action }: { title: string; body: strin
 export function LiveRoomPage({ roomId }: { roomId: string }) {
   const router = useRouter();
   const live = useLiveRoom(roomId);
+  const { me, rename } = useMe();
   const [details, setDetails] = useState<DetailsState>({ kind: "loading" });
   const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
   const [joined, setJoined] = useState(false);
+  usePresenceHeartbeat(joined ? roomId : null);
 
   useEffect(() => {
-    setName(loadDisplayName() ?? "");
+    if (me && !nameTouched) setName(me.displayName);
+  }, [me, nameTouched]);
+
+  useEffect(() => {
     let cancelled = false;
     fetch(`/api/rooms/${encodeURIComponent(roomId)}`, { cache: "no-store" })
       .then(async (res) => {
@@ -103,15 +110,21 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
   }
 
   const room = details.room;
-  const asHost = live.hasHostKey;
+  const asHost = Boolean(me && room.host.identity === me.id);
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
-    saveDisplayName(trimmed);
+    if (!trimmed || !me) return;
     setJoined(true);
-    void live.join(trimmed);
+    if (trimmed !== me.displayName) {
+      try {
+        await rename(trimmed);
+      } catch {
+        // The token request also updates the name; keep going.
+      }
+    }
+    void live.join(trimmed, me.id);
   };
 
   return (
@@ -141,9 +154,20 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
         </dl>
         <label>
           Your name
-          <input data-testid="join-name" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="How should people see you?" autoComplete="nickname" required />
+          <input
+            data-testid="join-name"
+            value={name}
+            maxLength={40}
+            onChange={(e) => {
+              setNameTouched(true);
+              setName(e.target.value);
+            }}
+            placeholder="How should people see you?"
+            autoComplete="nickname"
+            required
+          />
         </label>
-        <button type="submit" className="lv-btn lv-btn-primary lv-btn-large" data-testid="join-btn" disabled={!name.trim()}>
+        <button type="submit" className="lv-btn lv-btn-primary lv-btn-large" data-testid="join-btn" disabled={!name.trim() || !me}>
           {asHost ? "Start as host" : "Join and listen"}
         </button>
         <p className="lv-muted lv-small">

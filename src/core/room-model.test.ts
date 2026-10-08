@@ -18,7 +18,6 @@ const metadata: RoomMetadata = {
   language: "en",
   level: "beginner",
   host: { identity: "p-host", name: "Hana" },
-  hostKeyHash: "a".repeat(64),
   passage: { title: "T", text: "Some text", language: "en", source: "custom" },
   stage: ["p-speaker"],
   chatMuted: [],
@@ -40,18 +39,18 @@ describe("room metadata", () => {
     expect(stageRoleOf("p-x", metadata, true)).toBe("listener"); // metadata is authoritative
     expect(stageRoleOf("p-x", null, true)).toBe("speaker"); // test sessions without metadata
   });
-  it("summary never includes the host key hash", () => {
+  it("summarises for the lobby", () => {
     const summary = toRoomSummary("en-abcd-efgh", metadata, 3);
-    expect(JSON.stringify(summary)).not.toContain("aaaa");
     expect(summary.participantCount).toBe(3);
+    expect(summary.passageTitle).toBe("T");
   });
 });
 
 describe("API schemas", () => {
   it("validates create requests", () => {
-    expect(createRoomRequestSchema.safeParse({ title: "Hi", language: "en", level: "beginner", hostName: "A" }).success).toBe(true);
-    expect(createRoomRequestSchema.safeParse({ title: "", language: "en", level: "beginner", hostName: "A" }).success).toBe(false);
-    expect(createRoomRequestSchema.safeParse({ title: "Hi", language: "xx", level: "beginner", hostName: "A" }).success).toBe(false);
+    expect(createRoomRequestSchema.safeParse({ title: "Hi", language: "en", level: "beginner" }).success).toBe(true);
+    expect(createRoomRequestSchema.safeParse({ title: "", language: "en", level: "beginner" }).success).toBe(false);
+    expect(createRoomRequestSchema.safeParse({ title: "Hi", language: "xx", level: "beginner" }).success).toBe(false);
   });
   it("validates host actions", () => {
     expect(hostActionSchema.safeParse({ action: "invite", identity: "p-abc" }).success).toBe(true);

@@ -1,7 +1,6 @@
 import { TrackSource, TrackType } from "livekit-server-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { HAND_ATTRIBUTE_KEY, parseRoomMetadata, serializeRoomMetadata, type RoomMetadata } from "@/core/room-model";
-import { generateHostKey, hashHostKey, verifyHostKey } from "./host-auth";
 import { LingoRoomService, livekitHttpUrl, livekitPermissionFor, type RoomAdminClient } from "./room-service";
 
 function fakeClient(rooms: Array<{ name: string; metadata: string; numParticipants: number }>) {
@@ -40,22 +39,11 @@ const base: RoomMetadata = {
   language: "en",
   level: "beginner",
   host: { identity: "p-host", name: "Host" },
-  hostKeyHash: "0".repeat(64),
   passage: null,
   stage: [],
   chatMuted: [],
   createdAt: "2026-10-08T00:00:00.000Z",
 };
-
-describe("host key", () => {
-  it("verifies only the matching key", async () => {
-    const key = generateHostKey();
-    const hash = await hashHostKey(key);
-    expect(await verifyHostKey(key, hash)).toBe(true);
-    expect(await verifyHostKey(generateHostKey(), hash)).toBe(false);
-    expect(await verifyHostKey(undefined, hash)).toBe(false);
-  });
-});
 
 describe("livekitPermissionFor", () => {
   it("always sends the full permission object", () => {
@@ -81,18 +69,17 @@ describe("LingoRoomService", () => {
     ]);
     const rooms = await new LingoRoomService(client).listRooms();
     expect(rooms.map((r) => r.title)).toEqual(["B", "A"]);
-    expect(JSON.stringify(rooms)).not.toContain("hostKeyHash");
   });
 
-  it("creates a room with a default passage and a hashed host key", async () => {
+  it("creates a room with a default passage, hosted by the given account", async () => {
     const { client, state } = fakeClient([]);
     const service = new LingoRoomService(client, () => new Date("2026-10-08T00:00:00Z"));
-    const { details, hostKey, hostIdentity } = await service.createRoom({ title: "Hola", language: "es", level: "intermediate", hostName: "Ana" });
+    const details = await service.createRoom({ title: "Hola", language: "es", level: "intermediate" }, { identity: "u-ana", name: "Ana" });
     expect(details.id.startsWith("es-")).toBe(true);
     expect(details.passage?.id).toBe("es-i1");
-    expect(hostIdentity).toMatch(/^p-/);
+    expect(details.host).toEqual({ identity: "u-ana", name: "Ana" });
     const stored = parseRoomMetadata(state.rooms[0]!.metadata)!;
-    expect(await verifyHostKey(hostKey, stored.hostKeyHash)).toBe(true);
+    expect(stored.host.identity).toBe("u-ana");
     expect(client.createRoom).toHaveBeenCalledWith(expect.objectContaining({ emptyTimeout: 300, maxParticipants: 200 }));
   });
 

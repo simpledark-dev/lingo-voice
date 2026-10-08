@@ -26,9 +26,8 @@ import {
 } from "@/core/room-model";
 import type { ParticipantRole } from "@/core/types";
 import { defaultPassage, findPassage, libraryPassage } from "@/core/passages";
-import { generateIdentity, generateSessionId } from "@/core/validation";
+import { generateSessionId } from "@/core/validation";
 import type { ServerEnv } from "./env";
-import { generateHostKey, hashHostKey } from "./host-auth";
 
 /** LiveKit's HTTP API lives at the same host as the WebSocket URL. */
 export function livekitHttpUrl(wsUrl: string): string {
@@ -114,9 +113,7 @@ export class LingoRoomService {
     return found ? toRoomDetails(roomId, found.metadata, found.room.numParticipants) : null;
   }
 
-  async createRoom(input: CreateRoomRequest): Promise<{ details: RoomDetails; hostKey: string; hostIdentity: string }> {
-    const hostIdentity = input.hostIdentity ?? generateIdentity();
-    const hostKey = generateHostKey();
+  async createRoom(input: CreateRoomRequest, host: { identity: string; name: string }): Promise<RoomDetails> {
     const passage: Passage = input.customPassage
       ? { ...input.customPassage, language: input.language, level: input.level, source: "custom" }
       : (() => {
@@ -129,8 +126,7 @@ export class LingoRoomService {
       title: input.title,
       language: input.language,
       level: input.level,
-      host: { identity: hostIdentity, name: input.hostName },
-      hostKeyHash: await hashHostKey(hostKey),
+      host: { identity: host.identity, name: host.name },
       passage,
       stage: [],
       chatMuted: [],
@@ -144,7 +140,7 @@ export class LingoRoomService {
       maxParticipants: ROOM_MAX_PARTICIPANTS,
       metadata: serializeRoomMetadata(metadata),
     });
-    return { details: toRoomDetails(room.name, metadata, room.numParticipants), hostKey, hostIdentity };
+    return toRoomDetails(room.name, metadata, room.numParticipants);
   }
 
   private async updateMetadata(roomId: string, mutate: (m: RoomMetadata) => RoomMetadata): Promise<RoomMetadata> {

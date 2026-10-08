@@ -1,11 +1,12 @@
 import type { ParticipantRole } from "@/core/types";
 import { tokenRequestSchema } from "@/core/validation";
+import { getOrCreateUser, withSetCookie } from "@/server/auth";
 import { ConfigError, loadServerEnv } from "@/server/env";
-import { verifyHostKey } from "@/server/host-auth";
 import { apiError, apiJson } from "@/server/http";
 import { createLogger, errorFields } from "@/server/logger";
 import { createRoomServiceClient, LingoRoomService } from "@/server/room-service";
 import { createParticipantToken } from "@/server/token-service";
+import { updateDisplayName } from "@/server/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,29 +52,30 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const { sessionId, displayName, hostKey } = parsed.data;
+    const { sessionId, displayName } = parsed.data;
     let identity = parsed.data.identity;
     let role: ParticipantRole | undefined = parsed.data.role;
     let chatMuted = false;
     let productRoom = false;
+    let setCookie: string | null = null;
 
-    // Product rooms decide the role server-side; plain test sessions (/s/...) keep the requested role.
+    // Product rooms: identity is the account id and the role is decided server-side.
+    // Plain diagnostics sessions (/s/...) keep the client-proposed identity and role.
     const found = await new LingoRoomService(createRoomServiceClient(env)).findRoom(sessionId).catch((err: unknown) => {
       log.warn("token.room-lookup-failed", { requestId, sessionId, ...errorFields(err) });
       return null;
     });
     if (found) {
       productRoom = true;
+      const auth = await getOrCreateUser(request);
+      setCookie = auth.setCookie;
+      identity = auth.user.id;
+      if (auth.user.displayName !== displayName) await updateDisplayName(auth.user.id, displayName);
       const { metadata } = found;
-      if (hostKey && (await verifyHostKey(hostKey, metadata.hostKeyHash))) {
-        role = "host";
-        identity = metadata.host.identity;
-      } else if (identity && metadata.stage.includes(identity)) {
-        role = "speaker";
-      } else {
-        role = "listener";
-      }
-      chatMuted = identity ? metadata.chatMuted.includes(identity) : false;
+      if (metadata.host.identity === identity) role = "host";
+      else if (metadata.stage.includes(identity)) role = "speaker";
+      else role = "listener";
+      chatMuted = metadata.chatMuted.includes(identity);
     }
 
     const response = await createParticipantToken({ sessionId, displayName, identity, role }, { env, chatMuted });
@@ -87,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
       ttlSeconds: env.LIVEKIT_TOKEN_TTL_SECONDS,
       userAgent: request.headers.get("user-agent") ?? undefined,
     });
-    return apiJson(response);
+    return withSetCookie(apiJson(response), setCookie);
   } catch (err) {
     log.error("token.failed", { requestId, ...errorFields(err) });
     return apiError(500, "token-failed", "Could not create a join token.");

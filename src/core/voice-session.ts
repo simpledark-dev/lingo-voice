@@ -163,8 +163,6 @@ export interface JoinParams {
   displayName: string;
   identity: string;
   role?: ParticipantRole;
-  /** Host key for product rooms; the server turns it into the host role. */
-  hostKey?: string;
 }
 
 export type DataPayload = Uint8Array<ArrayBuffer>;
@@ -554,7 +552,6 @@ export class VoiceSession {
         displayName: params.displayName,
         identity: params.identity,
         role: params.role,
-        hostKey: params.hostKey,
       });
     } catch (err) {
       if (seq !== this.joinSeq) return;

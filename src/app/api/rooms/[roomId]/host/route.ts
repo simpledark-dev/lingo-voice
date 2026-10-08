@@ -1,10 +1,10 @@
 import { hostActionSchema } from "@/core/room-model";
 import { sessionIdSchema } from "@/core/validation";
-import { ConfigError, loadServerEnv } from "@/server/env";
-import { readHostKey, verifyHostKey } from "@/server/host-auth";
+import { createLogger, databaseFailure, readJson, roomService, zodDetails } from "@/server/api-helpers";
+import { getUser } from "@/server/auth";
 import { apiError, apiJson } from "@/server/http";
-import { createLogger, errorFields } from "@/server/logger";
-import { createRoomServiceClient, LingoRoomService, RoomNotFoundError } from "@/server/room-service";
+import { errorFields } from "@/server/logger";
+import { RoomNotFoundError } from "@/server/room-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,45 +12,43 @@ export const dynamic = "force-dynamic";
 const log = createLogger("api.host");
 
 /**
- * POST /api/rooms/:roomId/host  (header: x-host-key)
- * Body: one of the host actions in core/room-model.ts. Every action is enforced by
- * LiveKit permissions / metadata, so a client without the key cannot do any of this.
+ * POST /api/rooms/:roomId/host — moderation. Authorised when the signed-in user is
+ * the room's host (their user id is the host identity in the room metadata).
+ * Every action is enforced by LiveKit permissions / metadata, never by the UI alone.
  */
 export async function POST(request: Request, context: { params: Promise<{ roomId: string }> }): Promise<Response> {
   const { roomId } = await context.params;
   if (!sessionIdSchema.safeParse(roomId).success) return apiError(400, "invalid-request", "Invalid room id.");
 
-  let json: unknown;
-  try {
-    json = await request.json();
-  } catch {
-    return apiError(400, "invalid-json", "Request body must be JSON.");
-  }
-  const parsed = hostActionSchema.safeParse(json);
-  if (!parsed.success) {
-    return apiError(400, "invalid-request", "Invalid host action.", parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })));
-  }
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = hostActionSchema.safeParse(body.json);
+  if (!parsed.success) return apiError(400, "invalid-request", "Invalid host action.", zodDetails(parsed.error));
   const action = parsed.data;
 
-  let service: LingoRoomService;
+  const svc = roomService();
+  if (!svc.ok) return svc.response;
+
+  let user;
   try {
-    service = new LingoRoomService(createRoomServiceClient(loadServerEnv()));
+    user = await getUser(request);
   } catch (err) {
-    if (err instanceof ConfigError) return apiError(500, "server-misconfigured", "The voice server is not configured.");
-    throw err;
+    return databaseFailure(log, "host.auth-failed", err);
   }
+  if (!user) return apiError(401, "unauthenticated", "Sign in first.");
 
   try {
-    const found = await service.findRoom(roomId);
+    const found = await svc.service.findRoom(roomId);
     if (!found) return apiError(404, "room-not-found", "This room is not live.");
-    if (!(await verifyHostKey(readHostKey(request), found.metadata.hostKeyHash))) {
-      log.warn("host.unauthorized", { roomId, action: action.action });
-      return apiError(401, "host-key-invalid", "Only the host can do that.");
+    if (found.metadata.host.identity !== user.id) {
+      log.warn("host.forbidden", { roomId, userId: user.id, action: action.action });
+      return apiError(403, "not-host", "Only the host can do that.");
     }
     if ("identity" in action && action.identity === found.metadata.host.identity) {
       return apiError(400, "invalid-request", "The host cannot target themselves.");
     }
 
+    const service = svc.service;
     switch (action.action) {
       case "set-passage":
         await service.setPassage(roomId, action.passage);
@@ -74,7 +72,7 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
         await service.endRoom(roomId);
         break;
     }
-    log.info("host.action", { roomId, ...action });
+    log.info("host.action", { roomId, userId: user.id, ...action });
     return apiJson({ ok: true });
   } catch (err) {
     if (err instanceof RoomNotFoundError) return apiError(404, "room-not-found", "This room is not live.");

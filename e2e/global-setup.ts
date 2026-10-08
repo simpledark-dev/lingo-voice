@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
 export const FIXTURE_DIR = path.resolve(__dirname, ".fixtures");
@@ -51,4 +51,10 @@ function writeToneWav(file: string): void {
 export default function globalSetup(): void {
   if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
   if (!existsSync(TONE_WAV)) writeToneWav(TONE_WAV);
+  // Fresh accounts database for every run (only when the web server is started by Playwright).
+  if (!process.env.E2E_BASE_URL) {
+    for (const suffix of ["", "-journal", "-wal", "-shm"]) {
+      rmSync(path.resolve(__dirname, `../data/e2e.db${suffix}`), { force: true });
+    }
+  }
 }

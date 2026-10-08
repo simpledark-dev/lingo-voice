@@ -21,8 +21,6 @@ export interface SessionPermissions {
 export interface TokenRequest {
   sessionId: string;
   displayName: string;
-  /** Proves host authority for a product room (issued by POST /api/rooms). */
-  hostKey?: string;
   /**
    * Stable per-device/per-tab identity. Optional: the server generates one when
    * missing. Reusing the same identity after a refresh lets the server replace

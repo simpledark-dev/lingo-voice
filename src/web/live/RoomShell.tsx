@@ -78,9 +78,14 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
           <Icon name="users" size={18} /> <span>{participants.length}</span>
         </button>
         {isHost && (
-          <button className="lv-iconbtn" aria-label="Room options" data-testid="host-menu-btn" onClick={() => setSheet({ kind: "host-menu" })}>
-            <Icon name="more" />
-          </button>
+          <>
+            <button className="lv-btn lv-btn-small lv-btn-danger-ghost lv-end-btn" data-testid="end-room-btn" onClick={() => setSheet({ kind: "confirm-end" })}>
+              End room
+            </button>
+            <button className="lv-iconbtn" aria-label="Room options" data-testid="host-menu-btn" onClick={() => setSheet({ kind: "host-menu" })}>
+              <Icon name="more" />
+            </button>
+          </>
         )}
       </header>
 
@@ -145,7 +150,7 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
           title="Room options"
           items={[
             { label: "Change passage", onSelect: () => setSheet({ kind: "passage" }), testId: "menu-change-passage" },
-            { label: "People and hands", onSelect: () => setSheet({ kind: "people" }) },
+            { label: "People, hands and invites", onSelect: () => setSheet({ kind: "people" }) },
             { label: "End room for everyone", onSelect: () => setSheet({ kind: "confirm-end" }), tone: "danger", testId: "menu-end-room" },
           ]}
           onClose={close}
