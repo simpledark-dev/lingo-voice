@@ -1,0 +1,187 @@
+"use client";
+
+import { useState } from "react";
+import { REACTIONS } from "@/core/messages";
+import { languageLabel } from "@/core/room-model";
+import { ActionMenu } from "./ActionMenu";
+import { ChatInput, ChatMessages } from "./ChatPanel";
+import { Icon } from "./Icon";
+import { PassageCard } from "./PassageCard";
+import { PassagePicker } from "./PassagePicker";
+import { PeopleSheet } from "./PeopleSheet";
+import { ReactionOverlay } from "./ReactionOverlay";
+import { Stage } from "./Stage";
+import { StatusBanner } from "./StatusBanner";
+import type { LiveParticipant, LiveRoom } from "./useLiveRoom";
+import { RemoteAudioRenderer } from "@/web/components/RemoteAudioRenderer";
+
+type Sheet = { kind: "none" } | { kind: "people" } | { kind: "passage" } | { kind: "host-menu" } | { kind: "member"; p: LiveParticipant } | { kind: "leave" } | { kind: "confirm-end" };
+
+export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void }) {
+  const { state, metadata, participants, me, isHost, host, chat, reactions, hand } = live;
+  const [sheet, setSheet] = useState<Sheet>({ kind: "none" });
+  const [reactionsOpen, setReactionsOpen] = useState(false);
+  const close = () => setSheet({ kind: "none" });
+
+  const myRole = me?.stageRole ?? (state.local?.role === "host" ? "host" : "listener");
+  const onStage = participants.filter((p) => p.stageRole !== "listener").sort((a, b) => (a.stageRole === "host" ? -1 : b.stageRole === "host" ? 1 : 0));
+  const mic = state.microphone;
+  const connected = state.status === "connected";
+
+  const primary = (() => {
+    if (myRole === "listener") {
+      return hand.raised
+        ? { label: "Lower hand", icon: "hand" as const, onClick: () => void hand.lower(), tone: "active" as const, testId: "hand-btn", disabled: !connected }
+        : { label: "Raise hand", icon: "hand" as const, onClick: () => void hand.raise(), tone: "default" as const, testId: "hand-btn", disabled: !connected };
+    }
+    switch (mic.state) {
+      case "live":
+        return { label: "Mute", icon: "mic" as const, onClick: () => void live.session.setMicrophoneEnabled(false), tone: "active" as const, testId: "mic-btn", disabled: false };
+      case "muted":
+        return { label: "Unmute", icon: "mic-off" as const, onClick: () => void live.session.setMicrophoneEnabled(true), tone: "default" as const, testId: "mic-btn", disabled: false };
+      case "requesting":
+        return { label: "Starting…", icon: "mic" as const, onClick: () => undefined, tone: "default" as const, testId: "mic-btn", disabled: true };
+      case "error":
+        return { label: "Retry mic", icon: "mic-off" as const, onClick: () => void live.session.setMicrophoneEnabled(true), tone: "default" as const, testId: "mic-btn", disabled: !connected };
+      default:
+        return { label: "Turn on mic", icon: "mic" as const, onClick: () => void live.session.setMicrophoneEnabled(true), tone: "primary" as const, testId: "mic-btn", disabled: !connected };
+    }
+  })();
+
+  const leave = async () => {
+    await live.leave();
+    onLeft();
+  };
+
+  const endRoom = async () => {
+    try {
+      await host?.end();
+    } catch {
+      // error surfaced through actionError
+    }
+  };
+
+  return (
+    <div className="lv-room" data-testid="room" data-status={state.status} data-role={myRole}>
+      <header className="lv-top">
+        <button className="lv-iconbtn" aria-label="Leave room" data-testid="leave-btn" onClick={() => setSheet({ kind: "leave" })}>
+          <Icon name="chevron-left" />
+        </button>
+        <div className="lv-top-main">
+          <div className="lv-top-title">{metadata?.title ?? "Practice room"}</div>
+          <div className="lv-top-meta">
+            <span className="lv-live-dot" aria-hidden /> Live · {metadata ? `${languageLabel(metadata.language)} · ${metadata.level}` : ""}
+            {metadata && <> · hosted by {metadata.host.name}</>}
+          </div>
+        </div>
+        <button className="lv-btn lv-btn-ghost lv-people-btn" onClick={() => setSheet({ kind: "people" })} data-testid="people-btn" aria-label="People">
+          <Icon name="users" size={18} /> <span>{participants.length}</span>
+        </button>
+        {isHost && (
+          <button className="lv-iconbtn" aria-label="Room options" data-testid="host-menu-btn" onClick={() => setSheet({ kind: "host-menu" })}>
+            <Icon name="more" />
+          </button>
+        )}
+      </header>
+
+      <StatusBanner
+        state={state}
+        actionError={live.actionError}
+        onRejoin={() => void live.session.rejoin()}
+        onEnableAudio={() => void live.session.startAudioPlayback()}
+        onRetryMic={() => void live.session.setMicrophoneEnabled(true)}
+        onDismissAction={live.clearActionError}
+      />
+
+      <div className="lv-body">
+        <section className="lv-main">
+          <PassageCard passage={metadata?.passage ?? null} canEdit={Boolean(host)} onEdit={() => setSheet({ kind: "passage" })} />
+          <Stage members={onStage} canModerate={Boolean(host)} onSelect={(p) => setSheet({ kind: "member", p })} />
+          {myRole === "speaker" && mic.state !== "live" && mic.state !== "muted" && (
+            <div className="lv-prompt" data-testid="on-stage-prompt">
+              <strong>You're on stage.</strong> Turn on your microphone and read the passage aloud. The host will give you feedback.
+            </div>
+          )}
+          {myRole === "listener" && hand.raised && (
+            <div className="lv-prompt lv-prompt-soft" data-testid="hand-prompt">
+              Your hand is up. The host will invite you when it's your turn.
+            </div>
+          )}
+        </section>
+        <section className="lv-side" aria-label="Chat">
+          <ChatMessages messages={chat.messages} hostIdentity={metadata?.host.identity ?? null} myIdentity={state.local?.identity ?? null} canModerate={Boolean(host)} onDelete={(id) => void chat.remove(id)} />
+        </section>
+        <ReactionOverlay items={reactions.floating} />
+      </div>
+
+      {reactionsOpen && (
+        <div className="lv-reaction-row" data-testid="reaction-row">
+          {REACTIONS.map((emoji) => (
+            <button key={emoji} className="lv-reaction" data-testid="reaction-btn" data-emoji={emoji} onClick={() => void reactions.send(emoji)} aria-label={`React ${emoji}`}>
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <footer className="lv-bottom">
+        <button className={`lv-btn lv-primary-action is-${primary.tone}`} onClick={primary.onClick} disabled={primary.disabled} data-testid={primary.testId} aria-pressed={primary.tone === "active"}>
+          <Icon name={primary.icon} size={18} /> <span>{primary.label}</span>
+        </button>
+        <ChatInput canSend={chat.canSend} disabledReason={state.permissions?.canPublishData === false ? "Chat muted by host" : "Connecting…"} onSend={chat.send} />
+        <button className={`lv-iconbtn${reactionsOpen ? " is-active" : ""}`} aria-label="Reactions" aria-expanded={reactionsOpen} data-testid="reactions-toggle" onClick={() => setReactionsOpen((v) => !v)} disabled={!connected}>
+          <Icon name="smile" />
+        </button>
+      </footer>
+
+      <RemoteAudioRenderer session={live.session} roomGeneration={state.roomGeneration} />
+
+      {sheet.kind === "people" && <PeopleSheet participants={participants} host={host} onClose={close} />}
+      {sheet.kind === "passage" && metadata && host && (
+        <PassagePicker language={metadata.language} level={metadata.level} current={metadata.passage} onPick={(p) => host.setPassage(p)} onClose={close} />
+      )}
+      {sheet.kind === "host-menu" && (
+        <ActionMenu
+          title="Room options"
+          items={[
+            { label: "Change passage", onSelect: () => setSheet({ kind: "passage" }), testId: "menu-change-passage" },
+            { label: "People and hands", onSelect: () => setSheet({ kind: "people" }) },
+            { label: "End room for everyone", onSelect: () => setSheet({ kind: "confirm-end" }), tone: "danger", testId: "menu-end-room" },
+          ]}
+          onClose={close}
+        />
+      )}
+      {sheet.kind === "member" && host && (
+        <ActionMenu
+          title={sheet.p.name}
+          subtitle="On stage"
+          items={[
+            ...(sheet.p.microphone.published && !sheet.p.microphone.muted ? [{ label: "Mute microphone", onSelect: () => host.mute(sheet.p.identity), testId: "menu-mute" }] : []),
+            { label: "Remove from stage", onSelect: () => host.removeFromStage(sheet.p.identity), testId: "menu-remove-stage" },
+            { label: "Remove from room", onSelect: () => host.remove(sheet.p.identity), tone: "danger", testId: "menu-remove" },
+          ]}
+          onClose={close}
+        />
+      )}
+      {sheet.kind === "leave" && (
+        <ActionMenu
+          title="Leave this room?"
+          subtitle={isHost ? "The room stays open for others until it is empty, unless you end it." : undefined}
+          items={[
+            { label: "Leave", onSelect: leave, testId: "leave-confirm" },
+            ...(isHost ? [{ label: "End room for everyone", onSelect: () => setSheet({ kind: "confirm-end" }), tone: "danger" as const, testId: "leave-end" }] : []),
+          ]}
+          onClose={close}
+        />
+      )}
+      {sheet.kind === "confirm-end" && (
+        <ActionMenu
+          title="End the room for everyone?"
+          subtitle="Everyone will be disconnected and the room disappears from the lobby."
+          items={[{ label: "End room", onSelect: endRoom, tone: "danger", testId: "confirm-end" }]}
+          onClose={close}
+        />
+      )}
+    </div>
+  );
+}

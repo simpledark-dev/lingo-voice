@@ -12,6 +12,7 @@
  * It never touches the DOM. Remote audio playback is the platform layer's job
  * (see web/components/RemoteAudioRenderer.tsx); on React Native the SDK plays audio itself.
  */
+import type { ParticipantPermission } from "@livekit/protocol";
 import {
   ConnectionQuality,
   ConnectionState,
@@ -81,6 +82,9 @@ export interface ParticipantSnapshot {
   isLocal: boolean;
   role: ParticipantRole | null;
   canPublish: boolean | null;
+  canPublishData: boolean | null;
+  /** Participant attributes (e.g. raised hand). Client-set, so informational only. */
+  attributes: Record<string, string>;
   connectionQuality: ConnectionQuality;
   isSpeaking: boolean;
   audioLevel: number;
@@ -128,6 +132,8 @@ export interface VoiceEvent {
 export interface VoiceSessionState {
   status: SessionStatus;
   sessionId: string | null;
+  /** Raw LiveKit room metadata (product layers parse it). */
+  roomMetadata: string | null;
   local: { identity: string; displayName: string; role: ParticipantRole } | null;
   permissions: SessionPermissions | null;
   server: { url: string; region: string | null; nodeId: string | null; version: string | null } | null;
@@ -157,6 +163,18 @@ export interface JoinParams {
   displayName: string;
   identity: string;
   role?: ParticipantRole;
+  /** Host key for product rooms; the server turns it into the host role. */
+  hostKey?: string;
+}
+
+export type DataPayload = Uint8Array<ArrayBuffer>;
+
+export type DataListener = (payload: Uint8Array, from: { identity: string; name: string } | null, topic: string | undefined) => void;
+
+export interface PublishDataOptions {
+  reliable?: boolean;
+  topic?: string;
+  destinationIdentities?: string[];
 }
 
 export interface AutoRejoinPolicy {
@@ -187,6 +205,7 @@ export function createInitialState(): VoiceSessionState {
   return {
     status: "idle",
     sessionId: null,
+    roomMetadata: null,
     local: null,
     permissions: null,
     server: null,
@@ -217,6 +236,16 @@ function disconnectReasonName(reason: DisconnectReason | undefined): string {
 }
 
 type LooseStats = Record<string, number | string | undefined>;
+
+function toSessionPermissions(p: ParticipantPermission | undefined): SessionPermissions | null {
+  if (!p) return null;
+  return {
+    canPublish: p.canPublish,
+    canSubscribe: p.canSubscribe,
+    canPublishData: p.canPublishData,
+    canUpdateOwnMetadata: p.canUpdateMetadata,
+  };
+}
 
 /**
  * Reads inbound-rtp stats straight from the RTCRtpReceiver. The SDK's
@@ -270,6 +299,7 @@ export class VoiceSession {
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private eventSeq = 0;
   private readonly lastBytes = new Map<string, { at: number; bytes: number }>();
+  private readonly dataListeners = new Set<DataListener>();
 
   constructor(options: VoiceSessionOptions) {
     this.options = options;
@@ -290,6 +320,37 @@ export class VoiceSession {
   /** The underlying Room, for platform layers that need it (audio playback on web). */
   getRoom(): Room | null {
     return this.room;
+  }
+
+  /** Receive data messages (chat, reactions). `from` is null for server-sent data. */
+  onData(listener: DataListener): () => void {
+    this.dataListeners.add(listener);
+    return () => {
+      this.dataListeners.delete(listener);
+    };
+  }
+
+  /** Send a data message to the room (or to specific identities). Throws when not connected or not permitted. */
+  async publishData(payload: DataPayload, options: PublishDataOptions = {}): Promise<void> {
+    const room = this.room;
+    if (!room || (this.state.status !== "connected" && this.state.status !== "reconnecting")) {
+      throw new Error("Not connected");
+    }
+    if (room.localParticipant.permissions && !room.localParticipant.permissions.canPublishData) {
+      throw new Error("You are not allowed to send messages in this room");
+    }
+    await room.localParticipant.publishData(payload, {
+      reliable: options.reliable ?? true,
+      topic: options.topic,
+      destinationIdentities: options.destinationIdentities,
+    });
+  }
+
+  /** Set own participant attributes (requires canUpdateOwnMetadata). Empty string deletes a key. */
+  async setAttributes(attributes: Record<string, string>): Promise<void> {
+    const room = this.room;
+    if (!room || this.state.status !== "connected") throw new Error("Not connected");
+    await room.localParticipant.setAttributes(attributes);
   }
 
   // --- public actions ------------------------------------------------------
@@ -337,6 +398,7 @@ export class VoiceSession {
       activeSpeakers: [],
       rejoin: null,
       error: null,
+      roomMetadata: null,
       microphone: { ...this.state.microphone, state: "off", error: null, silenceDetected: false },
       stats: { local: null, remote: {} },
     });
@@ -492,6 +554,7 @@ export class VoiceSession {
         displayName: params.displayName,
         identity: params.identity,
         role: params.role,
+        hostKey: params.hostKey,
       });
     } catch (err) {
       if (seq !== this.joinSeq) return;
@@ -549,6 +612,8 @@ export class VoiceSession {
       },
       participants: this.snapshotParticipants(room),
       audioPlayback: { allowed: room.canPlaybackAudio },
+      roomMetadata: room.metadata ?? null,
+      permissions: toSessionPermissions(room.localParticipant.permissions) ?? tokenRes.permissions,
     });
     this.log("info", "connected", `Connected to "${room.name}"`, {
       region: info?.region,
@@ -751,7 +816,36 @@ export class VoiceSession {
     });
     room.on(RoomEvent.ParticipantNameChanged, refresh);
     room.on(RoomEvent.ParticipantAttributesChanged, refresh);
-    room.on(RoomEvent.ParticipantPermissionsChanged, refresh);
+    room.on(RoomEvent.ParticipantPermissionsChanged, (_prev: ParticipantPermission | undefined, p: Participant) => {
+      refresh();
+      if (p !== room.localParticipant) return;
+      const permissions = toSessionPermissions(p.permissions);
+      if (!permissions) return;
+      this.setState({ permissions });
+      const mic = this.state.microphone.state;
+      if (!permissions.canPublish && mic !== "not-allowed") {
+        // LiveKit unpublishes our track server-side; reflect it immediately.
+        this.patchMicrophone({ state: "not-allowed", error: null, silenceDetected: false });
+      } else if (permissions.canPublish && mic === "not-allowed") {
+        this.patchMicrophone({ state: "off", error: null });
+      }
+      this.log("info", "permissions", `Permissions changed: publish=${permissions.canPublish} data=${permissions.canPublishData}`);
+    });
+    room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
+      this.setState({ roomMetadata: metadata });
+      this.log("info", "room.metadata", "Room metadata updated");
+      refresh();
+    });
+    room.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
+      const from = participant ? { identity: participant.identity, name: participant.name || participant.identity } : null;
+      for (const listener of this.dataListeners) {
+        try {
+          listener(payload, from, topic);
+        } catch (err) {
+          this.log("warn", "data.listener-error", "Data listener threw", { detail: String(err) });
+        }
+      }
+    });
 
     room.on(RoomEvent.TrackPublished, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
       this.log("info", "track.published", `${nameOf(p)} published ${pub.source}`, { identity: p.identity });
@@ -883,6 +977,8 @@ export class VoiceSession {
       isLocal,
       role: roleFromAttributes(p.attributes),
       canPublish: p.permissions ? p.permissions.canPublish : null,
+      canPublishData: p.permissions ? p.permissions.canPublishData : null,
+      attributes: { ...p.attributes },
       connectionQuality: p.connectionQuality,
       isSpeaking: p.isSpeaking,
       audioLevel: p.audioLevel,

@@ -1,19 +1,66 @@
 # lingo-voice
 
-Real-time voice foundation for a future live language-practice platform. This pass builds **only** the
-production-minded voice layer: secure token backend, a platform-independent session controller on top of
-LiveKit, reliability handling, and a debug UI good enough to test across real phones and networks.
+Live language-practice rooms: a host picks a reading passage, learners listen, react and chat, raise a hand,
+get invited on stage, read aloud over real-time voice and receive feedback. Built on LiveKit Cloud with a
+Next.js app that is both frontend and backend.
 
-No room discovery, profiles, chat, payments or product UI yet. That is deliberate.
+The repository has two layers:
 
-## What you get
+1. **Voice foundation** (`src/core`, `src/server`, `/s/...` diagnostics): secure token backend, a
+   platform-independent session controller, reliability handling, a debug harness. Verified across devices.
+2. **Product layer** (`/`, `/create`, `/room/...`): lobby, room creation, the live room with passage, stage,
+   hand raising, chat, reactions and host moderation.
 
-- **Managed RTC: LiveKit Cloud** (decision and reasoning below). Nothing self-hosted in production.
-- **Secure backend**: `POST /api/token` mints short-lived LiveKit tokens server-side. API secret never reaches the browser.
-- **Roles**: `host`, `speaker` (publish + subscribe), `listener` (subscribe only) encoded as LiveKit grants. Speakers may only publish a microphone, never camera/screen.
-- **VoiceSession core** (`src/core/`): framework-free TypeScript that joins, publishes, mutes, tracks participants, active speakers, connection quality, device changes, audio-playback blocking, and rejoins with a fresh token when the SDK gives up. Reusable from React Native.
-- **Debug UI** at `/s/<session-id>`: status, participants, mic/subscription state, active speaker, WebRTC stats, event log, failure simulation buttons.
-- **Verified by real tests**: unit tests for token/authorization logic, and a Playwright suite that runs two to four real Chromium clients with fake microphones against a local LiveKit server and asserts audio actually flows (RTP packets + audio energy), mute propagation, reconnects, rejoin after server disconnect, refresh without duplicates, listener role, permission-denied recovery, and duplicate-identity handling.
+## The product
+
+| Screen | What happens |
+|---|---|
+| `/` lobby | Lists every room that is live right now (title, language, level, host, how many people are inside). Refreshes every 5 s. |
+| `/create` | Host picks language, level, title and a reading passage (built-in library in 8 languages and 3 levels, or custom text). |
+| `/room/<id>` | The live room. Listeners hear the stage, chat, react and raise a hand. The host invites learners to speak, changes the passage, mutes or removes people, moderates chat, ends the room. |
+
+Roles inside a room:
+
+- **Host**: the creator. Speaks, and holds a secret *host key* that unlocks all moderation actions.
+- **Speaker**: a learner the host invited. Can publish a microphone until removed from stage. Several speakers can be on stage at once.
+- **Listener**: everyone else. Hears the stage, chats, reacts, raises a hand.
+
+### How room state works (no database yet)
+
+Everything real-time rides on LiveKit, so there is nothing else to run:
+
+| State | Where it lives | Who writes it |
+|---|---|---|
+| Which rooms are live, how many people | LiveKit rooms themselves (`listRooms`) | LiveKit |
+| Title, language, level, host, passage, stage list, chat-muted list | LiveKit **room metadata** (JSON, `src/core/room-model.ts`) | our server only |
+| Who may publish audio / send chat | LiveKit **participant permissions** | our server only (`updateParticipant`) |
+| Raised hand | the participant's own LiveKit **attribute** `lingo.hand` | the participant |
+| Chat, reactions, message deletion | LiveKit **data messages** (`src/core/messages.ts`) | participants; deletes accepted only from the host identity |
+
+Consequences worth knowing: rooms disappear from the lobby when empty (LiveKit closes them after 5 minutes
+without participants), chat is not persisted (late joiners receive the host's last 50 messages over a
+direct data message), and a learner who refreshes keeps their stage seat because the stage list is in
+metadata. A real database only becomes necessary for history, profiles and scheduled rooms.
+
+### Host authority without accounts
+
+`POST /api/rooms` returns a random **host key** once; the browser keeps it in `localStorage` for that room
+and sends it as `x-host-key` on `POST /api/rooms/<id>/host`. The server stores only a SHA-256 hash in the room
+metadata. Every moderation action is applied by the server through LiveKit (permissions, metadata, mute,
+remove, delete room), so a client without the key cannot fake any of it. When accounts arrive, the key
+becomes "the authenticated user is the room's host" and nothing else changes.
+
+### Product API (for a native client later)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/rooms` | live rooms for the lobby |
+| `POST /api/rooms` | create a room → `{ room, hostKey, hostIdentity }` |
+| `GET /api/rooms/:id` | details for the join screen (404 when not live) |
+| `POST /api/rooms/:id/host` + `x-host-key` | `set-passage`, `invite`, `remove-from-stage`, `mute`, `remove-participant`, `set-chat-muted`, `end` |
+| `POST /api/token` | join token; the server decides the role from the room (host key → host, on the stage list → speaker, else listener) |
+
+Schemas for every payload are in `src/core/room-model.ts` and `src/core/messages.ts`.
 
 ## Quick start
 
@@ -126,19 +173,28 @@ src/
     room-options.ts     LiveKit RoomOptions tuned for voice (AEC/NS/AGC, 32 kbps Opus, DTX, RED)
     errors.ts           user-facing recoverable error model + classifiers for SDK/browser errors
     token-client.ts     fetch-based token client (works in browsers and React Native)
-    voice-session.ts    VoiceSession controller: join/leave/rejoin, mic, devices, state snapshot, event log, stats
+    voice-session.ts    VoiceSession controller: join/leave/rejoin, mic, devices, data messages, attributes, state snapshot
+    room-model.ts       product model: room metadata schema, roles, API payload schemas
+    messages.ts         chat / reaction / moderation message codecs
+    passages.ts         built-in reading passages (8 languages x 3 levels)
   server/               server only
     env.ts              env validation (never leaks values), health description
     token-service.ts    AccessToken minting from role permissions
+    room-service.ts     rooms on LiveKit's admin API: create/list, stage, mute, remove, chat mute, end
+    host-auth.ts        host key generation / hashing / verification
     logger.ts, http.ts  JSON logging, API error helpers
   app/                  Next.js routes
-    api/token/route.ts  POST -> TokenResponse
+    page.tsx, create/   lobby and room creation
+    room/[roomId]/      the live room (client-only)
+    api/rooms/...       room list, create, details, host actions
+    api/token/route.ts  POST -> TokenResponse (role decided server-side for product rooms)
     api/health/route.ts GET  -> config sanity
-    s/[sessionId]/      session page (client-only RTC UI)
-  web/                  browser specific
+    s/, s/[sessionId]/  voice diagnostics harness
+  web/
+    live/               product UI: useLiveRoom hook, RoomShell, Stage, PassageCard, ChatPanel, PeopleSheet, ...
+    lobby/              Lobby and CreateRoomForm
     hooks/useVoiceSession.ts   binds VoiceSession to React + online/visibility events
-    components/RemoteAudioRenderer.tsx  attaches remote tracks to <audio> (the only DOM touch point)
-    components/*.tsx    debug UI
+    components/         diagnostics UI and RemoteAudioRenderer (the only DOM audio touch point)
 e2e/                    Playwright multi-client tests (real audio, local LiveKit server)
 ```
 
@@ -227,7 +283,16 @@ generated speech-like test signal as the fake microphone. It asserts real RTP pa
 audio energy on the receiving side, not just UI state. Scenarios: presence, publish/subscribe, active speaker,
 mute propagation, signal reconnect, forced full reconnect, offline → online, server-side disconnect →
 auto-rejoin with fresh token, refresh without duplicates, leave/join, listener role, permission denied → recovery,
-duplicate identity.
+duplicate identity, muted participants send nothing audible.
+
+`e2e/live-room.spec.ts` drives the product with a host and a learner: create a room → it appears in the lobby →
+learner joins as listener and hears the host → chat both ways → reaction → raise hand → host invites → learner
+turns on the mic and the host hears them → host deletes a message, changes the passage, removes the learner
+from stage, mutes their chat → host ends the room and it leaves the lobby. It also checks that host actions
+without the key are rejected, that the host keeps control after a reload, and that a removed learner is told why.
+
+If a dev server is already running in this folder (Next allows one per directory), run the suite against a
+production build instead: `pnpm build && E2E_SERVER_CMD="pnpm exec next start -p 3100" pnpm test:e2e`.
 
 ### What has been verified so far (2026-10-08)
 
@@ -353,7 +418,8 @@ Errors: `400 invalid-json | invalid-request`, `500 server-misconfigured | token-
 
 ## What is deliberately not here yet
 
-Authentication (identity/role must become server-decided), moderation (host muting others uses
-`roomAdmin` grants + `RoomServiceClient`), room lifecycle APIs (list/close rooms, kick), rate limiting,
-recording, analytics, and all product UI. The pieces above are designed so these land on top without touching
-the RTC layer.
+Accounts and authentication (the host key and the client-proposed identity stand in for them), persistent chat
+history and room history, scheduled or recurring rooms, profiles and progress, rate limiting on the public
+endpoints, recording, analytics, and push notifications. The room model is designed so these land on top
+without touching the RTC layer: identity and host authority move from "host key + device identity" to
+"authenticated user", everything else stays.

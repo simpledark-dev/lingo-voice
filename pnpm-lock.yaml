@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@livekit/protocol':
+        specifier: 1.51.0
+        version: 1.51.0
       livekit-client:
         specifier: ^2.22.3
         version: 2.22.3(@types/dom-mediacapture-record@1.0.22)

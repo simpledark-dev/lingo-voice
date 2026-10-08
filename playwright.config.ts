@@ -23,6 +23,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: BASE_URL,
+    /** A missing element should fail fast, not consume the whole test budget. */
+    actionTimeout: 15_000,
     permissions: ["microphone"],
     launchOptions: {
       args: [

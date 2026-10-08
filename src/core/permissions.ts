@@ -1,19 +1,20 @@
 import type { ParticipantRole, SessionPermissions } from "./types";
 
 /**
- * Single source of truth for what each role may do. The token service turns this
- * into LiveKit grants; clients use it to decide which controls to show.
+ * Single source of truth for what each role may do. The token service and the
+ * room service turn this into LiveKit grants / participant permissions; clients
+ * use it to decide which controls to show.
  *
- * host     - speaks; later: moderates (mute others, promote listeners)
- * speaker  - speaks
- * listener - listens only (cannot publish any track)
+ * host     - speaks, moderates through the host API
+ * speaker  - speaks (invited on stage)
+ * listener - listens, chats, reacts, raises a hand
  */
-export function permissionsForRole(role: ParticipantRole): SessionPermissions {
-  switch (role) {
-    case "host":
-    case "speaker":
-      return { canPublish: true, canSubscribe: true };
-    case "listener":
-      return { canPublish: false, canSubscribe: true };
-  }
+export function permissionsForRole(role: ParticipantRole, options: { chatMuted?: boolean } = {}): SessionPermissions {
+  const base: SessionPermissions = {
+    canPublish: role === "host" || role === "speaker",
+    canSubscribe: true,
+    canPublishData: !options.chatMuted,
+    canUpdateOwnMetadata: true,
+  };
+  return base;
 }

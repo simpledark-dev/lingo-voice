@@ -24,7 +24,7 @@ describe("createParticipantToken", () => {
     expect(res.serverUrl).toBe(env.LIVEKIT_URL);
     expect(res.identity).toBe("p-alice");
     expect(res.role).toBe("speaker");
-    expect(res.permissions).toEqual({ canPublish: true, canSubscribe: true });
+    expect(res.permissions).toEqual({ canPublish: true, canSubscribe: true, canPublishData: true, canUpdateOwnMetadata: true });
     expect(res.expiresAt).toBe("2026-10-08T01:00:00.000Z");
 
     const claims = await verifier.verify(res.token);
@@ -32,8 +32,8 @@ describe("createParticipantToken", () => {
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.canPublish).toBe(true);
     expect(claims.video?.canSubscribe).toBe(true);
-    expect(claims.video?.canPublishData).toBe(false);
-    expect(claims.video?.canUpdateOwnMetadata).toBe(false);
+    expect(claims.video?.canPublishData).toBe(true);
+    expect(claims.video?.canUpdateOwnMetadata).toBe(true);
     expect(claims.video?.roomAdmin).toBeUndefined();
     expect(claims.name).toBe("Alice");
     expect(claims.attributes?.[ROLE_ATTRIBUTE_KEY]).toBe("speaker");
@@ -44,11 +44,21 @@ describe("createParticipantToken", () => {
       { sessionId: "test-room", displayName: "Bob", identity: "p-bob", role: "listener" },
       { env },
     );
-    expect(res.permissions).toEqual({ canPublish: false, canSubscribe: true });
+    expect(res.permissions).toEqual({ canPublish: false, canSubscribe: true, canPublishData: true, canUpdateOwnMetadata: true });
     const claims = await verifier.verify(res.token);
     expect(claims.video?.canPublish).toBe(false);
     expect(claims.video?.canSubscribe).toBe(true);
     expect(claims.video?.canPublishSources).toBeUndefined();
+  });
+
+  it("drops data permission when the host muted the user's chat", async () => {
+    const res = await createParticipantToken(
+      { sessionId: "test-room", displayName: "Loud", identity: "p-loud", role: "listener" },
+      { env, chatMuted: true },
+    );
+    expect(res.permissions.canPublishData).toBe(false);
+    const claims = await verifier.verify(res.token);
+    expect(claims.video?.canPublishData).toBe(false);
   });
 
   it("restricts publishers to the microphone source", async () => {

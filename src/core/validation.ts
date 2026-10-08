@@ -22,11 +22,14 @@ export const displayNameSchema = z
 
 export const roleSchema = z.enum(PARTICIPANT_ROLES);
 
+export const hostKeySchema = z.string().trim().min(16).max(128);
+
 export const tokenRequestSchema = z.object({
   sessionId: sessionIdSchema,
   displayName: displayNameSchema,
   identity: identitySchema.optional(),
   role: roleSchema.optional(),
+  hostKey: hostKeySchema.optional(),
 });
 
 export type TokenRequestInput = z.input<typeof tokenRequestSchema>;

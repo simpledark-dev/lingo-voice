@@ -1,7 +1,10 @@
+import type { ParticipantRole } from "@/core/types";
 import { tokenRequestSchema } from "@/core/validation";
 import { ConfigError, loadServerEnv } from "@/server/env";
+import { verifyHostKey } from "@/server/host-auth";
 import { apiError, apiJson } from "@/server/http";
 import { createLogger, errorFields } from "@/server/logger";
+import { createRoomServiceClient, LingoRoomService } from "@/server/room-service";
 import { createParticipantToken } from "@/server/token-service";
 
 export const runtime = "nodejs";
@@ -48,12 +51,39 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const response = await createParticipantToken(parsed.data, { env });
+    const { sessionId, displayName, hostKey } = parsed.data;
+    let identity = parsed.data.identity;
+    let role: ParticipantRole | undefined = parsed.data.role;
+    let chatMuted = false;
+    let productRoom = false;
+
+    // Product rooms decide the role server-side; plain test sessions (/s/...) keep the requested role.
+    const found = await new LingoRoomService(createRoomServiceClient(env)).findRoom(sessionId).catch((err: unknown) => {
+      log.warn("token.room-lookup-failed", { requestId, sessionId, ...errorFields(err) });
+      return null;
+    });
+    if (found) {
+      productRoom = true;
+      const { metadata } = found;
+      if (hostKey && (await verifyHostKey(hostKey, metadata.hostKeyHash))) {
+        role = "host";
+        identity = metadata.host.identity;
+      } else if (identity && metadata.stage.includes(identity)) {
+        role = "speaker";
+      } else {
+        role = "listener";
+      }
+      chatMuted = identity ? metadata.chatMuted.includes(identity) : false;
+    }
+
+    const response = await createParticipantToken({ sessionId, displayName, identity, role }, { env, chatMuted });
     log.info("token.issued", {
       requestId,
       sessionId: response.sessionId,
       identity: response.identity,
       role: response.role,
+      productRoom,
+      chatMuted,
       ttlSeconds: env.LIVEKIT_TOKEN_TTL_SECONDS,
       userAgent: request.headers.get("user-agent") ?? undefined,
     });

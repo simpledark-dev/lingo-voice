@@ -12,6 +12,8 @@ export interface TokenServiceDeps {
   env: ServerEnv;
   now?: () => Date;
   generateIdentity?: () => string;
+  /** Host muted this participant's chat (product rooms). */
+  chatMuted?: boolean;
 }
 
 /** `request` must already be validated with tokenRequestSchema. */
@@ -19,7 +21,7 @@ export async function createParticipantToken(request: TokenRequest, deps: TokenS
   const { env } = deps;
   const now = deps.now ? deps.now() : new Date();
   const role: ParticipantRole = request.role ?? env.DEFAULT_PARTICIPANT_ROLE;
-  const permissions = permissionsForRole(role);
+  const permissions = permissionsForRole(role, { chatMuted: deps.chatMuted });
   const identity = request.identity ?? (deps.generateIdentity ?? generateIdentity)();
   const ttlSeconds = env.LIVEKIT_TOKEN_TTL_SECONDS;
 
@@ -37,8 +39,8 @@ export async function createParticipantToken(request: TokenRequest, deps: TokenS
     canPublish: permissions.canPublish,
     // Voice product: even speakers may only publish a microphone, never camera/screen.
     ...(permissions.canPublish ? { canPublishSources: [TrackSource.MICROPHONE] } : {}),
-    canPublishData: false,
-    canUpdateOwnMetadata: false,
+    canPublishData: permissions.canPublishData,
+    canUpdateOwnMetadata: permissions.canUpdateOwnMetadata,
     hidden: false,
   });
 

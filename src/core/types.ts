@@ -6,16 +6,23 @@
 export const PARTICIPANT_ROLES = ["host", "speaker", "listener"] as const;
 export type ParticipantRole = (typeof PARTICIPANT_ROLES)[number];
 
-/** What a participant is allowed to do inside a session. Derived from the role. */
+/** What a participant is allowed to do inside a session. Derived from the role (and moderation state). */
 export interface SessionPermissions {
+  /** Publish a microphone track. */
   canPublish: boolean;
   canSubscribe: boolean;
+  /** Send data messages (chat, reactions). False when the host muted this user's chat. */
+  canPublishData: boolean;
+  /** Update own participant attributes (used for raising a hand). */
+  canUpdateOwnMetadata: boolean;
 }
 
 /** Body of POST /api/token. Sent by any client (web today, native later). */
 export interface TokenRequest {
   sessionId: string;
   displayName: string;
+  /** Proves host authority for a product room (issued by POST /api/rooms). */
+  hostKey?: string;
   /**
    * Stable per-device/per-tab identity. Optional: the server generates one when
    * missing. Reusing the same identity after a refresh lets the server replace
