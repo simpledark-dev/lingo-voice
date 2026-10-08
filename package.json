@@ -1,0 +1,36 @@
+{
+  "name": "lingo-voice",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Real-time voice foundation (LiveKit) for a live language-practice platform",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "livekit:dev": "livekit-server --dev --bind 127.0.0.1"
+  },
+  "dependencies": {
+    "livekit-client": "^2.22.3",
+    "livekit-server-sdk": "^2.19.1",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.4",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

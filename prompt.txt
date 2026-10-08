@@ -1,0 +1,362 @@
+This will eventually become a live language-practice platform where hosts and learners speak with each other in voice rooms, but for this pass I want to isolate and solve the real-time voice infrastructure first.
+
+Build ONLY the core real-time voice foundation for a serious production-oriented product.
+
+Do NOT build room discovery, user profiles, learning content, text chat, payments, rankings, admin dashboards, or other product features yet. Spend the implementation effort on making real-time voice work extremely well.
+
+## Primary success criterion
+
+I should be able to:
+
+1. Deploy the app.
+2. Open a test-session URL on my device.
+3. Send the same URL to friends.
+4. Have them join from different phones/laptops and different networks.
+5. Enable their microphones.
+6. Speak simultaneously.
+7. Hear each other clearly, reliably, and with low latency.
+
+The experience should feel as seamless as reasonably possible compared with products such as TikTok Live or Twitter/X Spaces.
+
+Do not consider this pass complete if the voice layer is mocked, partially implemented, or only works in one browser tab.
+
+## Web first, native mobile later
+
+Build the current MVP as a responsive web application because it is faster to develop and test.
+
+It MUST work well on mobile web, especially:
+
+- iPhone Safari
+- Android Chrome
+- desktop Chrome
+- desktop Safari where practical
+
+However, the eventual product is expected to become a native mobile application.
+
+Architect the system so a future React Native / native iOS / native Android client can reuse the same:
+
+- RTC provider
+- backend
+- authentication/token flow
+- room/session model
+- participant identity model
+- speaker permissions
+- APIs
+- business logic where practical
+
+Avoid unnecessary browser-specific coupling.
+
+It is completely acceptable to rebuild the UI later for mobile. I do NOT want to have to redesign the RTC/backend architecture.
+
+## 1. Choose the RTC architecture
+
+Briefly evaluate managed RTC options such as:
+
+- LiveKit Cloud
+- Agora
+- Daily
+- or another clearly better choice
+
+Evaluate based on:
+
+- voice quality
+- latency
+- connection reliability
+- mobile-web support
+- iPhone Safari behavior
+- Android support
+- future React Native/iOS/Android SDK support
+- reconnection behavior
+- global infrastructure
+- ability to support several speakers + many listeners later
+- developer experience
+- operational complexity
+- current pricing
+- cost at scale
+
+IMPORTANT:
+
+Do not spend excessive time producing a provider-comparison report.
+
+Once one provider clearly satisfies the requirements, choose it, briefly explain why, and proceed with implementation.
+
+The objective of this pass is a WORKING VOICE SYSTEM, not RTC market research.
+
+Prefer managed RTC infrastructure rather than implementing WebRTC/SFU/TURN infrastructure ourselves.
+
+Do not prematurely self-host RTC infrastructure merely to save a small amount of money.
+
+## 2. Actual real-time voice
+
+Implement real cross-device voice communication.
+
+Requirements:
+
+- multiple participants can join the same test session
+- at least 2 participants can publish microphone audio simultaneously
+- both should hear each other with low latency
+- preferably allow several simultaneous speakers so we can validate the future stage model
+- participants can mute/unmute themselves
+- show who is connected
+- show who is muted
+- show who is publishing microphone audio
+- show active-speaker state
+- correctly subscribe/unsubscribe to remote audio tracks
+- clean up tracks/connections when participants leave
+
+Do not simulate any of this.
+
+If multi-speaker support introduces complexity, prioritize making 2-person simultaneous voice extremely reliable first, then expand.
+
+## 3. Reliability is extremely important
+
+Implement and test real-world failure handling, including:
+
+- participant joins/leaves
+- temporary network loss
+- automatic reconnect
+- failed reconnect with useful recovery UI
+- Wi-Fi/mobile-network changes where feasible
+- browser refresh
+- stale/duplicate participant connections
+- microphone permission denied
+- microphone unavailable
+- microphone device changes
+- track publication failure
+- track subscription failure
+- connection timeout
+- mobile browser backgrounding and returning
+- user switching tabs/apps
+- browser audio/autoplay restrictions
+- proper cleanup after leaving
+- retry logic where appropriate
+
+Use the RTC SDK's supported reconnection/network-quality mechanisms instead of reinventing them.
+
+Enable appropriate WebRTC audio-processing features supported by the platform/provider, such as:
+
+- echo cancellation
+- noise suppression
+- automatic gain control
+
+Do not invent DSP/audio processing unless genuinely necessary.
+
+## 4. Mobile-web quality
+
+Treat mobile web as a first-class environment.
+
+Pay particular attention to:
+
+- iOS Safari microphone permissions
+- user-gesture requirements for audio
+- autoplay restrictions
+- microphone recovery after backgrounding
+- screen locking
+- Bluetooth/headsets
+- device changes
+- mobile network instability
+- returning from another app
+
+Where browser limitations cannot be eliminated, handle them gracefully and document them.
+
+## 5. Secure production-oriented backend
+
+Implement whatever minimal backend is required for secure RTC access.
+
+Must include:
+
+- RTC access tokens generated server-side
+- no RTC secret/API secret exposed to the browser
+- participant identities
+- session/room identifiers
+- environment-variable management
+- appropriate publish/subscribe permissions
+- basic validation
+- error handling
+- useful server logging
+
+The backend should be reusable by a future native mobile client.
+
+Do not tightly couple token generation or session logic to the web UI.
+
+## 6. Keep code architecture clean but don't over-engineer
+
+Separate:
+
+- RTC/session logic
+- backend/token logic
+- UI
+- reusable types/business logic
+
+Where useful, keep platform-independent TypeScript logic separate from React/browser components.
+
+However, do not spend excessive effort inventing abstraction layers before the RTC system actually works.
+
+Prefer official SDK patterns and simple maintainable code.
+
+## 7. Build a minimal RTC debug/test UI
+
+Do NOT spend significant effort on design.
+
+Create only enough UI to test and diagnose voice reliably.
+
+Show useful information such as:
+
+- session ID
+- participant name/ID
+- connection status
+- reconnecting state
+- connected participants
+- microphone status
+- publish status
+- subscription status
+- active speaker
+- relevant RTC/network-quality information if exposed by the SDK
+- recoverable errors
+
+Controls should include:
+
+- Join
+- Leave
+- Mute
+- Unmute
+
+Optionally allow entering a display name and session ID.
+
+This debug visibility is important because we will be testing across real devices/networks.
+
+## 8. Implement incrementally and VERIFY each milestone
+
+Do not build the entire system blindly and assume it works.
+
+Work through these milestones in order:
+
+### Milestone 1
+Project setup and secure RTC token generation.
+
+Verify token generation.
+
+### Milestone 2
+Two browser clients can join the same RTC session.
+
+Verify participant presence.
+
+### Milestone 3
+Two clients can publish and receive microphone audio.
+
+This is the most important milestone.
+
+Verify real audio communication before continuing.
+
+### Milestone 4
+Mute/unmute, participant state, and active-speaker indicators.
+
+### Milestone 5
+Disconnect/reconnect and temporary network interruption recovery.
+
+### Milestone 6
+Cross-device testing:
+- computer ↔ phone
+- phone ↔ phone where practical
+- separate networks
+
+### Milestone 7
+Deployable production-like test environment.
+
+Do not build later milestones on top of an earlier milestone that is obviously broken.
+
+## 9. Scalability and economics
+
+This is intended to become a real business eventually.
+
+Assume that later:
+
+- thousands of users may be online
+- there may be many simultaneous rooms
+- each room may have a host
+- several participants may be allowed to speak
+- many other participants may only listen
+
+Research the CURRENT pricing of the chosen RTC provider and explain concisely:
+
+- what usage metric determines cost
+- participant-minute/hour cost where applicable
+- whether listeners cost differently from publishers
+- estimated cost for example scenarios such as:
+  - 100 users
+  - 1,000 users
+  - 10,000 users
+- what usage pattern would make RTC expensive
+- whether a reasonable paid business model could cover these expenses
+- at approximately what scale self-hosting or negotiated enterprise pricing might become worth investigating
+
+These estimates do not need to be financially perfect. I mainly want to avoid an architecture whose economics obviously fail at scale.
+
+## 10. Testing checklist
+
+Provide a concrete manual test checklist for me covering:
+
+- two desktop browsers
+- desktop + iPhone
+- desktop + Android
+- iPhone + Android where possible
+- separate Wi-Fi networks
+- Wi-Fi vs mobile data
+- mute/unmute
+- repeated join/leave
+- temporary network interruption
+- reconnect
+- browser refresh
+- backgrounding mobile browser
+- microphone permission denial then recovery
+- Bluetooth/headset where practical
+
+Add small automated tests for critical backend logic such as token creation/authorization if useful, but do NOT spend this pass building a large automated test suite.
+
+## 11. Deployment and setup
+
+The final project should include:
+
+- clear README
+- local-development instructions
+- deployment instructions
+- `.env.example`
+- any required provider configuration
+- troubleshooting notes
+- cross-device test instructions
+
+If the RTC provider requires me to manually create an account/project/API credentials, implement everything possible first.
+
+Then tell me EXACTLY:
+
+- which service I need to sign up for
+- what I need to create
+- which credentials/URLs I need
+- where each environment variable goes
+
+Do not leave this vague.
+
+## Priority order
+
+Spend effort in this exact priority:
+
+1. Real cross-device low-latency voice
+2. Reliability/reconnection
+3. Mobile-web behavior
+4. Correct RTC architecture
+5. Audio quality
+6. Future native-mobile compatibility
+7. Security/token handling
+8. Scalability/cost viability
+9. Debug/test visibility
+10. UI appearance
+
+Do NOT sacrifice reliability work to make the page prettier.
+
+## Definition of done
+
+This pass is complete only when the project is in a state where I can deploy it, send a URL to a friend, join from separate devices/networks, enable our microphones, and reliably speak and hear each other.
+
+The output I care about is not a prototype UI.
+
+The output I care about is a solid, production-minded REAL-TIME VOICE FOUNDATION that we can later build the actual language-learning product on top of.
