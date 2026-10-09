@@ -15,7 +15,7 @@ The repository has two layers:
 
 | Screen | What happens |
 |---|---|
-| `/` lobby | Lists every room that is live right now (title, language, level, host, how many people are inside). Refreshes every 5 s. |
+| `/` lobby | Lists every live room as a row (`#number`, title, language, level, host, how many inside). Shows who is online: a sidebar on desktop, a "N online" button on phones that opens a full-screen list; tapping a person shows where they are with a shortcut to their room. Refreshes every 5 s. |
 | `/create` | Host picks language, level, title and a reading passage (built-in library in 8 languages and 3 levels, or custom text). |
 | `/room/<id>` | The live room. Listeners hear the stage, chat, react and raise a hand. Raised hands show up in a "Wants to speak" queue in the room itself (and as a badge on the People button); the host invites from there, changes the passage, mutes or removes people, moderates chat, ends the room. |
 
@@ -32,14 +32,23 @@ Roles inside a room:
 - **Speaker**: a learner the host invited. Can publish a microphone until removed from stage. Several speakers can be on stage at once.
 - **Listener**: everyone else. Hears the stage, chats, reacts, raises a hand.
 
+### Installable (PWA)
+
+The app ships a web manifest (`src/app/manifest.ts`), generated icons in `public/icons/` (placeholder mark;
+replace the files with real artwork, same names), Apple home-screen tags, and a minimal service worker
+(`public/sw.js`, registered in production builds only) that serves `/offline` when a navigation fails. Nothing
+live is cached. On iPhone: Share → Add to Home Screen; on Android Chrome: the install prompt or menu → Install.
+
 ### Idle disconnect (cost control)
 
 A participant whose room tab is hidden (another tab, app in the background, locked screen) for longer than
-`ROOM_IDLE_DISCONNECT_MS` (default 10 minutes) is disconnected and shown a one-tap "Rejoin" screen. Two layers
-enforce it: the room page's own timer, and a server sweep run from the lobby endpoint at most once a minute
-that removes room participants whose presence heartbeat (sent only while the tab is visible) is older than the
-limit, which covers phones that suspend background tabs. Hosts are not exempt; the room stays open for the
-others. Lobby presence has no LiveKit cost and is never cut.
+`ROOM_IDLE_DISCONNECT_MS` (default 10 minutes) is disconnected and shown a one-tap "Rejoin" screen. The page
+also detects a device that slept with the tab visible (its clock jumps by more than the limit between ticks)
+and leaves the same way. A server sweep, run from the lobby endpoint at most once a minute, is the backstop:
+it removes room participants whose presence heartbeat (sent only while the tab is visible) is older than the
+limit plus two minutes of grace, which covers phones that suspend background tabs. If that removal reaches a
+page that was itself inactive, the page shows the "you were away" screen, not "removed by the host". Hosts are
+not exempt; the room stays open for the others. Lobby presence has no LiveKit cost and is never cut.
 
 ### Look and feel
 
@@ -50,7 +59,8 @@ compact "wants to speak" strip, collapsible passage (open by default for the hos
 for listeners), chat floating over the lower third as translucent pills so the passage keeps the column, and a
 bottom bar with the hand or mic button, the message field and reactions. The header carries Share (native share
 sheet on phones, copy link elsewhere) and, for the host, End. Raised hands are accepted with one tap from the
-queue; the learner's prompt shows their place in line. Inputs are 16px so iOS does not zoom. `SHOTS=1 pnpm exec playwright test e2e/screenshots.spec.ts`
+queue, with a short chime for the host when a new hand goes up (Web Audio, unlocked by the host's join tap);
+the learner's prompt shows their place in line. Inputs are 16px so iOS does not zoom. `SHOTS=1 pnpm exec playwright test e2e/screenshots.spec.ts`
 captures every screen at phone and desktop sizes into `test-results/shots/` for design review.
 
 ### Where state lives
@@ -60,7 +70,7 @@ Real-time room state rides on LiveKit; accounts, presence and invites live in a 
 | State | Where it lives | Who writes it |
 |---|---|---|
 | Which rooms are live, how many people | LiveKit rooms themselves (`listRooms`) | LiveKit |
-| Title, language, level, host, passage, stage list, chat-muted list | LiveKit **room metadata** (JSON, `src/core/room-model.ts`) | our server only |
+| Title, language, level, host, passage, stage list, chat-muted list, display number | LiveKit **room metadata** (JSON, `src/core/room-model.ts`) | our server only |
 | Who may publish audio / send chat | LiveKit **participant permissions** | our server only (`updateParticipant`) |
 | Raised hand | the participant's own LiveKit **attribute** `lingo.hand` | the participant |
 | Chat, reactions, message deletion | LiveKit **data messages** (`src/core/messages.ts`) | participants; deletes accepted only from the host identity |

@@ -42,7 +42,8 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Opportunistic idle sweep: nobody should pay LiveKit minutes for a hidden tab.
     try {
-      const sweep = await maybeSweepIdle(svc.service, { idleMs: roomIdleDisconnectMs(), getUsersByIds });
+      // Two minutes of grace on top of the client limit, so the page's own timer always goes first.
+      const sweep = await maybeSweepIdle(svc.service, { idleMs: roomIdleDisconnectMs() + 120_000, getUsersByIds });
       if (sweep && sweep.removed.length > 0) log.info("lobby.idle-sweep", { removed: sweep.removed });
     } catch (err) {
       log.warn("lobby.idle-sweep-failed", errorFields(err));

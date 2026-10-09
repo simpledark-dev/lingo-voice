@@ -114,7 +114,22 @@ export class LingoRoomService {
     return found ? toRoomDetails(roomId, found.metadata, found.room.numParticipants) : null;
   }
 
+  /** A 4-digit number no live room is using (5 digits if the 4-digit space is crowded). */
+  private async pickRoomNumber(): Promise<number> {
+    const taken = new Set((await this.listRooms()).map((r) => r.number));
+    const random = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const candidate = random(1000, 9999);
+      if (!taken.has(candidate)) return candidate;
+    }
+    for (;;) {
+      const candidate = random(10_000, 99_999);
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
   async createRoom(input: CreateRoomRequest, host: { identity: string; name: string }): Promise<RoomDetails> {
+    const number = await this.pickRoomNumber();
     const passage: Passage = input.customPassage
       ? { ...input.customPassage, language: input.language, level: input.level, source: "custom" }
       : (() => {
@@ -127,6 +142,7 @@ export class LingoRoomService {
       title: input.title,
       language: input.language,
       level: input.level,
+      number,
       host: { identity: host.identity, name: host.name },
       passage,
       stage: [],

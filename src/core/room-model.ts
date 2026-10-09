@@ -47,6 +47,8 @@ export const roomMetadataSchema = z.object({
   title: z.string().trim().min(1).max(80),
   language: languageSchema,
   level: levelSchema,
+  /** Short number shown to people ("#4821"); unique among live rooms. The URL keeps the slug id. */
+  number: z.number().int().min(1).max(999_999).optional(),
   /** The host's user id (also their LiveKit identity) and display name. */
   host: z.object({ identity: identitySchema, name: displayNameSchema }),
   passage: passageSchema.nullable(),
@@ -87,6 +89,8 @@ export function stageRoleOf(identity: string, metadata: RoomMetadata | null, can
 /** What the lobby shows. */
 export interface RoomSummary {
   id: string;
+  /** Display number, e.g. 4821 -> "#4821". */
+  number: number;
   title: string;
   language: LanguageCode;
   level: Level;
@@ -101,9 +105,17 @@ export interface RoomDetails extends RoomSummary {
   stage: string[];
 }
 
+/** Fallback for rooms created before numbers existed: a stable 4-digit hash of the id. */
+export function fallbackRoomNumber(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return 1000 + (h % 9000);
+}
+
 export function toRoomSummary(id: string, metadata: RoomMetadata, participantCount: number): RoomSummary {
   return {
     id,
+    number: metadata.number ?? fallbackRoomNumber(id),
     title: metadata.title,
     language: metadata.language,
     level: metadata.level,

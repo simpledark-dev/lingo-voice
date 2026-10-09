@@ -77,11 +77,22 @@ describe("LingoRoomService", () => {
     const service = new LingoRoomService(client, () => new Date("2026-10-08T00:00:00Z"));
     const details = await service.createRoom({ title: "Hola", language: "es", level: "intermediate" }, { identity: "u-ana", name: "Ana" });
     expect(details.id.startsWith("es-")).toBe(true);
+    expect(details.number).toBeGreaterThanOrEqual(1000);
+    expect(details.number).toBeLessThanOrEqual(9999);
     expect(details.passage?.id).toBe("es-i1");
     expect(details.host).toEqual({ identity: "u-ana", name: "Ana" });
     const stored = parseRoomMetadata(state.rooms[0]!.metadata)!;
     expect(stored.host.identity).toBe("u-ana");
     expect(client.createRoom).toHaveBeenCalledWith(expect.objectContaining({ emptyTimeout: 300, maxParticipants: 200 }));
+  });
+
+  it("never reuses a live room's number", async () => {
+    const { client } = fakeClient([{ name: "en-a", metadata: serializeRoomMetadata({ ...base, number: 4242 }), numParticipants: 1 }]);
+    const service = new LingoRoomService(client);
+    const spy = vi.spyOn(Math, "random").mockReturnValueOnce((4242 - 1000) / 9000 + 0.00001).mockReturnValue(0.5);
+    const details = await service.createRoom({ title: "x", language: "en", level: "beginner" }, { identity: "u-h", name: "H" });
+    expect(details.number).not.toBe(4242);
+    spy.mockRestore();
   });
 
   it("invites with speaker permission, clears the hand and records the stage", async () => {

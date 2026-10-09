@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import type { InviteView, LobbyResponse } from "@/core/lobby-model";
+import type { InviteView, LobbyResponse, OnlineUser } from "@/core/lobby-model";
 import { languageLabel } from "@/core/room-model";
 import { useAccount } from "@/web/account/AccountProvider";
+import { ActionMenu } from "@/web/live/ActionMenu";
 import { Avatar } from "@/web/live/Avatar";
 import { Icon } from "@/web/live/Icon";
-import { NameEditor } from "./NameEditor";
-import { OnlineList, OnlineSidebar } from "./OnlinePanel";
+import { OnlineList, OnlineSidebar, whereIs } from "./OnlinePanel";
 
 type LobbyState = { kind: "loading" } | { kind: "ready"; data: LobbyResponse } | { kind: "error"; message: string };
 
@@ -38,7 +38,8 @@ export function Lobby() {
   const router = useRouter();
   const account = useAccount();
   const [state, setState] = useState<LobbyState>({ kind: "loading" });
-  const [peopleOpen, setPeopleOpen] = useState(false);
+  const [view, setView] = useState<"rooms" | "people">("rooms");
+  const [selected, setSelected] = useState<OnlineUser | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -78,11 +79,6 @@ export function Lobby() {
     };
   }, [load]);
 
-  const rename = async (name: string) => {
-    await account.rename(name);
-    await load();
-  };
-
   const respond = async (invite: InviteView, action: "accept" | "decline") => {
     setHidden((prev) => new Set(prev).add(invite.id));
     void fetch(`/api/invites/${encodeURIComponent(invite.id)}`, {
@@ -96,24 +92,52 @@ export function Lobby() {
 
   const data = state.kind === "ready" ? state.data : null;
   const invites = (data?.invites ?? []).filter((i) => !hidden.has(i.id));
+  const online = data?.online ?? [];
+  const onlineCount = data?.onlineCount ?? 0;
+
+  const personPopup = selected && (
+    <ActionMenu
+      title={selected.displayName}
+      subtitle={whereIs(selected)}
+      items={
+        selected.location.kind === "room" && !selected.isMe
+          ? [{ label: "Go to their room", onSelect: () => router.push(`/room/${(selected.location as { roomId: string }).roomId}`), testId: "person-go-room" }]
+          : []
+      }
+      onClose={() => setSelected(null)}
+    />
+  );
+
+  if (view === "people") {
+    return (
+      <main className="lv-page lv-lobby" data-testid="online-view">
+        <header className="lv-lobby-head lv-lobby-head-people">
+          <button className="lv-iconbtn" aria-label="Back to rooms" data-testid="online-back" onClick={() => setView("rooms")}>
+            <Icon name="chevron-left" />
+          </button>
+          <h1>
+            Online now · <span data-testid="online-count-mobile">{onlineCount}</span>
+          </h1>
+        </header>
+        <OnlineList online={online} onSelect={setSelected} />
+        {personPopup}
+      </main>
+    );
+  }
 
   return (
     <main className="lv-page lv-lobby">
       <header className="lv-lobby-head">
-        <div>
+        <div className="lv-lobby-title">
           <div className="lv-wordmark">Lingo</div>
           <h1>Live practice rooms</h1>
-          <p className="lv-muted">Listen, react, raise your hand, and read aloud with a host who gives feedback.</p>
-          <NameEditor me={account.me} onRename={rename} />
         </div>
-        <div className="lv-lobby-actions">
-          <button className="lv-btn lv-online-toggle" onClick={() => setPeopleOpen(true)} data-testid="online-toggle" aria-label="People online">
-            <Icon name="users" size={18} /> <span data-testid="online-count-mobile">{data?.onlineCount ?? "–"}</span> online
-          </button>
-          <Link href="/create" className="lv-btn lv-btn-primary lv-btn-large" data-testid="create-room-link">
-            Create a room
-          </Link>
-        </div>
+        <button className="lv-btn lv-btn-small lv-online-toggle" onClick={() => setView("people")} data-testid="online-toggle" aria-label="People online">
+          <Icon name="users" size={16} /> <span>{onlineCount}</span> online
+        </button>
+        <Link href="/create" className="lv-btn lv-btn-primary lv-btn-large lv-create-btn" data-testid="create-room-link">
+          Create a room
+        </Link>
       </header>
 
       {invites.length > 0 && (
@@ -139,67 +163,46 @@ export function Lobby() {
           )}
           {data && !data.roomsError && data.rooms.length === 0 && (
             <div className="lv-card lv-empty" data-testid="rooms-empty">
-              <h2>No rooms are live right now</h2>
-              <p className="lv-muted">Start one and share the link. It appears here the moment you join.</p>
+              <h2>No available rooms</h2>
               <Link href="/create" className="lv-btn lv-btn-primary">
                 Create a room
               </Link>
             </div>
           )}
           {data && data.rooms.length > 0 && (
-            <ul className="lv-room-grid" data-testid="room-list">
+            <ul className="lv-room-rows" data-testid="room-list">
               {data.rooms.map((room) => (
                 <li key={room.id}>
-                  <Link href={`/room/${room.id}`} className="lv-room-card" data-testid="room-card" data-room-id={room.id}>
-                    <div className="lv-room-card-top">
-                      <span className="lv-pill lv-pill-live">
-                        <span className="lv-live-dot" aria-hidden /> Live
+                  <Link href={`/room/${room.id}`} className="lv-room-row" data-testid="room-card" data-room-id={room.id}>
+                    <span className="lv-room-id" data-testid="room-number">#{room.number}</span>
+                    <span className="lv-room-main">
+                      <span className="lv-room-title">{room.title}</span>
+                      <span className="lv-room-meta">
+                        {languageLabel(room.language)} · {room.level} · {room.host.name}
                       </span>
+                    </span>
+                    <span className="lv-room-right">
                       <span className="lv-pill">
                         <Icon name="users" size={14} /> {room.participantCount}
                       </span>
-                    </div>
-                    <h2>{room.title}</h2>
-                    <p className="lv-room-card-meta">
-                      {languageLabel(room.language)} · {room.level}
-                    </p>
-                    {room.passageTitle && (
-                      <p className="lv-room-card-passage">
-                        <Icon name="book" size={14} /> {room.passageTitle}
-                      </p>
-                    )}
-                    <div className="lv-room-card-host">
-                      <Avatar name={room.host.name} identity={room.host.identity} size={28} />
-                      <span>Hosted by {room.host.name}</span>
-                    </div>
+                      <span className="lv-live-pill">
+                        <span className="lv-live-dot" aria-hidden /> Live
+                      </span>
+                    </span>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
         </section>
-        <OnlineSidebar online={data?.online ?? []} count={data?.onlineCount ?? 0} />
+        <OnlineSidebar online={online} count={onlineCount} onSelect={setSelected} />
       </div>
 
+      {/* Diagnostics link, kept for now but hidden from the lobby:
       <footer className="lv-lobby-foot lv-muted lv-small">
         Having audio trouble? <Link href="/s">Run a connection test</Link>.
-      </footer>
-
-      {peopleOpen && (
-        <div className="lv-sheet-backdrop" onClick={() => setPeopleOpen(false)} role="presentation">
-          <div className="lv-sheet lv-sheet-tall" role="dialog" aria-label="People online" onClick={(e) => e.stopPropagation()} data-testid="online-sheet">
-            <div className="lv-sheet-head">
-              <div className="lv-sheet-title">Online now · {data?.onlineCount ?? 0}</div>
-              <button className="lv-iconbtn" onClick={() => setPeopleOpen(false)} aria-label="Close">
-                <Icon name="x" />
-              </button>
-            </div>
-            <div className="lv-sheet-body">
-              <OnlineList online={data?.online ?? []} />
-            </div>
-          </div>
-        </div>
-      )}
+      </footer> */}
+      {personPopup}
     </main>
   );
 }

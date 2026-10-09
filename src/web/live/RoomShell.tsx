@@ -14,6 +14,7 @@ import { PeopleSheet } from "./PeopleSheet";
 import { ReactionOverlay } from "./ReactionOverlay";
 import { Stage } from "./Stage";
 import { StatusBanner } from "./StatusBanner";
+import { useHandRaiseSound } from "./useHandRaiseSound";
 import type { LiveParticipant, LiveRoom } from "./useLiveRoom";
 import { RemoteAudioRenderer } from "@/web/components/RemoteAudioRenderer";
 
@@ -72,6 +73,10 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
     .filter((p) => p.stageRole === "listener" && p.handRaisedAt)
     .sort((a, b) => (a.handRaisedAt! < b.handRaisedAt! ? -1 : 1));
   const myQueuePosition = hands.findIndex((p) => p.isLocal) + 1;
+  useHandRaiseSound(
+    hands.map((p) => p.identity),
+    isHost && state.status === "connected",
+  );
   const mic = state.microphone;
   const connected = state.status === "connected";
 
@@ -122,6 +127,7 @@ export function RoomShell({ live, onLeft }: { live: LiveRoom; onLeft: () => void
             </span>
             {metadata && (
               <span className="lv-top-sub">
+                {metadata.number !== undefined && <span className="lv-room-id">#{metadata.number} · </span>}
                 {languageLabel(metadata.language)} · {metadata.level}
               </span>
             )}

@@ -14,12 +14,13 @@ async function open(browser: Browser, viewport: { width: number; height: number 
   return context.newPage();
 }
 async function guest(page: Page, name: string): Promise<void> {
-  await page.goto("/");
+  await page.goto("/create"); // the create page keeps the inline name editor
   await page.getByTestId("guest-continue").click();
   await page.getByTestId("rename-btn").click();
   await page.getByTestId("rename-input").fill(name);
   await page.getByTestId("rename-save").click();
   await expect(page.getByTestId("me-name")).toHaveText(name);
+  await page.goto("/");
 }
 const shot = (page: Page, name: string) => page.screenshot({ path: `${OUT}/${name}.png`, fullPage: false });
 
@@ -37,6 +38,7 @@ test("capture screens", async ({ browser }) => {
   await expect(learner.getByTestId("guest-continue")).toBeVisible();
   await shot(learner, "phone-welcome");
   await guest(learner, "Minh");
+  await expect(learner.getByTestId("rooms-empty").or(learner.getByTestId("room-list"))).toBeVisible();
   await shot(learner, "phone-lobby-empty");
 
   // Host creates a room (desktop)
@@ -57,9 +59,13 @@ test("capture screens", async ({ browser }) => {
   await expect(learner.getByTestId("room-card")).toBeVisible({ timeout: 20_000 });
   await shot(learner, "phone-lobby");
   await learner.getByTestId("online-toggle").click();
-  await learner.waitForTimeout(400);
-  await shot(learner, "phone-lobby-online-sheet");
-  await learner.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await learner.waitForTimeout(300);
+  await shot(learner, "phone-lobby-online-view");
+  await learner.getByTestId("online-person").first().click();
+  await learner.waitForTimeout(300);
+  await shot(learner, "phone-lobby-person-popup");
+  await learner.keyboard.press("Escape");
+  await learner.getByTestId("online-back").click();
   await learner.getByTestId("room-card").click();
   await learner.waitForURL(new RegExp(roomId));
   await expect(learner.getByTestId("join-btn")).toBeVisible();

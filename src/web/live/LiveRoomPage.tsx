@@ -12,6 +12,7 @@ import { NameEditor } from "@/web/lobby/NameEditor";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { RoomShell } from "./RoomShell";
+import { unlockSound } from "./sound";
 import { useLiveRoom } from "./useLiveRoom";
 
 type DetailsState = { kind: "loading" } | { kind: "ready"; room: RoomDetails; idleMs: number } | { kind: "missing" } | { kind: "error"; message: string };
@@ -56,10 +57,21 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
 
   const idleMs = details.kind === "ready" ? details.idleMs : DEFAULT_IDLE_MS;
   const connectedish = joined && (live.state.status === "connected" || live.state.status === "reconnecting" || live.state.status === "rejoining");
-  useIdleDisconnect(connectedish, idleMs, () => {
+  const idle = useIdleDisconnect(connectedish, idleMs, () => {
     setIdleKicked(true);
     void live.leave();
   });
+
+  // The server's idle sweep removes participants whose heartbeats stopped (e.g. the device slept with
+  // the tab visible). That arrives as "removed"; when this page was indeed inactive, say so instead.
+  const removedCode = live.state.error?.code;
+  useEffect(() => {
+    if (removedCode === "removed-from-session" && idle.inactiveFor() > idleMs * 0.8) {
+      setIdleKicked(true);
+      void live.leave();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [removedCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +102,7 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
           testId: "idle-rejoin",
           onClick: () => {
             if (!me) return;
+            unlockSound();
             setIdleKicked(false);
             setJoined(true);
             void live.join(me.displayName, me.id);
@@ -141,6 +154,7 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
 
   const join = () => {
     if (!me) return;
+    unlockSound(); // inside the tap, so iOS allows later notification chimes
     setJoined(true);
     void live.join(me.displayName, me.id);
   };
@@ -156,7 +170,7 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
           <div>
             <h1 data-testid="gate-title">{room.title}</h1>
             <p className="lv-muted">
-              {languageLabel(room.language)} · {room.level} · hosted by {room.host.name}
+              <span className="lv-room-id">#{room.number}</span> · {languageLabel(room.language)} · {room.level} · hosted by {room.host.name}
             </p>
           </div>
         </div>

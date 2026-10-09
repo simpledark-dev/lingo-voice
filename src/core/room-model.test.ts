@@ -43,6 +43,8 @@ describe("room metadata", () => {
     const summary = toRoomSummary("en-abcd-efgh", metadata, 3);
     expect(summary.participantCount).toBe(3);
     expect(summary.passageTitle).toBe("T");
+    expect(summary.number).toBeGreaterThanOrEqual(1000); // fallback hash for rooms without a number
+    expect(toRoomSummary("en-abcd-efgh", { ...metadata, number: 77 }, 1).number).toBe(77);
   });
 });
 

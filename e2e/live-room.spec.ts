@@ -79,7 +79,7 @@ test("guest accounts: welcome screen, continue as guest, persisted by cookie, re
   // Nothing is created before the user chooses to continue.
   const before = await page.context().request.get("/api/me");
   expect(((await before.json()) as { user: unknown }).user).toBeNull();
-  await page.goto("/");
+  await page.goto("/create");
   await continueAsGuest(page);
   const name = await page.getByTestId("me-name").textContent();
   expect(name?.trim().split(" ")).toHaveLength(2); // "Curious Heron" style
@@ -89,9 +89,14 @@ test("guest accounts: welcome screen, continue as guest, persisted by cookie, re
   await renameVia(page, "Hana");
   await page.reload();
   await expect(page.getByTestId("me-name")).toHaveText("Hana");
-  // Online panel lists me (desktop viewport) and the count is at least 1.
-  await expect(page.getByTestId("online-list").locator('[data-testid="online-person"]').filter({ hasText: "Hana" })).toBeVisible();
+  // The lobby's online panel lists me (desktop viewport) and the count is at least 1.
+  await page.goto("/");
+  await expect(page.getByTestId("online-list").locator('[data-testid="online-person"]').filter({ hasText: "Hana" })).toBeVisible({ timeout: 20_000 });
   expect(Number(await page.getByTestId("online-count").textContent())).toBeGreaterThanOrEqual(1);
+  // Tapping a person opens a popup that says where they are.
+  await page.getByTestId("online-list").locator('[data-testid="online-person"]').filter({ hasText: "Hana" }).click();
+  await expect(page.getByRole("dialog", { name: "Hana" })).toContainText("In the lobby");
+  await page.keyboard.press("Escape");
   await page.context().close();
 });
 
@@ -129,10 +134,9 @@ test("full live room flow", async ({ browser, request }) => {
   // --- Host account + room ------------------------------------------------------
   await host.goto("/");
   await continueAsGuest(host);
-  await renameVia(host, "Hana");
   await host.getByTestId("create-room-link").click();
   await host.waitForURL(/\/create/);
-  await expect(host.getByTestId("me-name")).toHaveText("Hana");
+  await renameVia(host, "Hana");
   await host.getByTestId("create-language").selectOption("en");
   await host.getByTestId("create-level").selectOption("beginner");
   await host.getByTestId("create-title").fill("Evening English");
@@ -162,8 +166,10 @@ test("full live room flow", async ({ browser, request }) => {
   const hostOnline = learner.locator(`[data-testid="online-person"][data-user-id="${hostIdentity}"]`);
   await expect(hostOnline).toBeVisible({ timeout: 30_000 });
   await expect(hostOnline).toHaveAttribute("data-location", "room");
-  await expect(hostOnline).toContainText("Evening English");
   expect(Number(await learner.getByTestId("online-count").textContent())).toBeGreaterThanOrEqual(2);
+  await hostOnline.click();
+  await expect(learner.getByRole("dialog", { name: "Hana" })).toContainText("In Evening English");
+  await learner.keyboard.press("Escape");
 
   // --- Learner joins as listener --------------------------------------------------
   await card.click();
@@ -269,10 +275,9 @@ test("host invites someone from the lobby; they get the invite and join", async 
   const host = await newPage(browser, "host2");
   const guest = await newPage(browser, "guest2");
 
-  await host.goto("/");
+  await host.goto("/create");
   await continueAsGuest(host);
   await renameVia(host, "Hana");
-  await host.goto("/create");
   await host.getByTestId("create-title").fill("Invite me");
   await host.getByTestId("create-submit").click();
   await host.waitForURL(/\/room\//, { timeout: 30_000 });
@@ -287,10 +292,11 @@ test("host invites someone from the lobby; they get the invite and join", async 
   await expect(stranger.getByTestId("gate-title")).toHaveText("Invite me", { timeout: 20_000 });
   await stranger.context().close();
 
-  // Guest browses the lobby (becomes "online, in the lobby").
-  await guest.goto("/");
+  // Guest renames on the create page, then browses the lobby (becomes "online, in the lobby").
+  await guest.goto("/create");
   await continueAsGuest(guest);
   await renameVia(guest, "Linh");
+  await guest.goto("/");
   const guestId = await meId(guest.context());
 
   // Host sees them under "In the lobby" and invites.
