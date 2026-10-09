@@ -2,17 +2,12 @@
 
 import type { ReactNode } from "react";
 import { AccountProvider, useAccount } from "./AccountProvider";
+import { LoadingScreen } from "./LoadingScreen";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 function Gate({ children }: { children: ReactNode }) {
   const { status, error, continueAsGuest, refresh } = useAccount();
-  if (status === "loading") {
-    return (
-      <main className="lv-page lv-center">
-        <p className="lv-muted">Loading…</p>
-      </main>
-    );
-  }
+  if (status === "loading") return <LoadingScreen />;
   if (status === "error") {
     return (
       <main className="lv-page lv-center">

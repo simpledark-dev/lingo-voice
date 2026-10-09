@@ -1,6 +1,7 @@
 import { sessionIdSchema } from "@/core/validation";
 import { ConfigError, loadServerEnv } from "@/server/env";
 import { apiError, apiJson } from "@/server/http";
+import { roomIdleDisconnectMs } from "@/server/idle";
 import { createLogger, errorFields } from "@/server/logger";
 import { createRoomServiceClient, LingoRoomService } from "@/server/room-service";
 
@@ -16,7 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ roomId
   try {
     const details = await new LingoRoomService(createRoomServiceClient(loadServerEnv())).getRoomDetails(roomId);
     if (!details) return apiError(404, "room-not-found", "This room is not live.");
-    return apiJson({ room: details });
+    return apiJson({ room: details, idleDisconnectMs: roomIdleDisconnectMs() });
   } catch (err) {
     if (err instanceof ConfigError) return apiError(500, "server-misconfigured", "The voice server is not configured.");
     log.error("room.get-failed", { roomId, ...errorFields(err) });

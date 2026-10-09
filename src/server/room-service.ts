@@ -46,6 +46,7 @@ export type RoomAdminClient = Pick<
   | "deleteRoom"
   | "updateRoomMetadata"
   | "getParticipant"
+  | "listParticipants"
   | "removeParticipant"
   | "mutePublishedTrack"
   | "updateParticipant"
@@ -175,6 +176,11 @@ export class LingoRoomService {
       permission: livekitPermissionFor("listener", { chatMuted: metadata.chatMuted.includes(identity) }),
     });
     return metadata;
+  }
+
+  async listParticipantIdentities(roomId: string): Promise<string[]> {
+    const participants = await this.client.listParticipants(roomId);
+    return participants.map((p) => p.identity);
   }
 
   /** Server-side mute of every audio track the participant publishes. */

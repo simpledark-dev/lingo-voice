@@ -207,8 +207,10 @@ test("full live room flow", async ({ browser, request }) => {
   const queueRow = host.locator(`[data-testid="hands-row"][data-identity="${learnerIdentity}"]`);
   await expect(queueRow).toBeVisible({ timeout: 15_000 });
   await expect(host.getByTestId("hands-badge")).toHaveText(/1/);
+  await expect(queueRow.getByTestId("hands-invite-btn")).toHaveText("Accept");
+  await expect(learner.getByTestId("hand-prompt")).toContainText("1st in line");
   await queueRow.getByTestId("hands-invite-btn").click();
-  await expect(host.getByTestId("hands-queue")).toHaveCount(0, { timeout: 15_000 }); // hand cleared on invite
+  await expect(host.getByTestId("hands-queue")).toHaveCount(0, { timeout: 15_000 }); // hand cleared on accept
 
   await expect(learner.getByTestId("on-stage-prompt")).toBeVisible({ timeout: 20_000 });
   await host.getByTestId("people-btn").click();
@@ -330,4 +332,50 @@ test("host invites someone from the lobby; they get the invite and join", async 
 
   await host.context().close();
   await guest.context().close();
+});
+
+test("a participant whose room tab stays hidden past the idle limit is disconnected and can rejoin", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const host = await newPage(browser, "host3");
+  const learner = await newPage(browser, "learner3");
+
+  await host.goto("/");
+  await continueAsGuest(host);
+  await host.goto("/create");
+  await host.getByTestId("create-title").fill("Idle check");
+  await host.getByTestId("create-submit").click();
+  await host.waitForURL(/\/room\//, { timeout: 30_000 });
+  const roomId = new URL(host.url()).pathname.split("/").pop()!;
+  await host.getByTestId("join-btn").click();
+  await expect(room(host)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
+
+  await learner.goto(`/room/${roomId}`);
+  await continueAsGuest(learner);
+  await learner.getByTestId("join-btn").click();
+  await expect(room(learner)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
+  await expect(host.getByTestId("people-btn")).toContainText("2", { timeout: 20_000 });
+
+  // Simulate the tab going to the background (the test server's idle limit is 5 s).
+  const setVisibility = (page: Page, state: "hidden" | "visible") =>
+    page.evaluate((value) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, state);
+  await setVisibility(learner, "hidden");
+  await expect(learner.getByTestId("room-idle")).toBeVisible({ timeout: 20_000 });
+  await expect(host.getByTestId("people-btn")).toContainText("1", { timeout: 20_000 });
+
+  // Back in the foreground: one tap to rejoin.
+  await setVisibility(learner, "visible");
+  await learner.getByTestId("idle-rejoin").click();
+  await expect(room(learner)).toHaveAttribute("data-status", "connected", { timeout: 30_000 });
+  await expect(host.getByTestId("people-btn")).toContainText("2", { timeout: 20_000 });
+
+  // The host is not exempt: an idle host is disconnected too, the room survives for the others.
+  await setVisibility(host, "hidden");
+  await expect(host.getByTestId("room-idle")).toBeVisible({ timeout: 20_000 });
+  await expect(learner.getByTestId("people-btn")).toContainText("1", { timeout: 20_000 });
+
+  await host.context().close();
+  await learner.context().close();
 });

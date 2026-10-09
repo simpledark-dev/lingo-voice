@@ -54,6 +54,7 @@ export default defineConfig({
         LIVEKIT_API_KEY: "devkey",
         LIVEKIT_API_SECRET: "secret",
         DATABASE_URL: "file:./data/e2e.db",
+        ROOM_IDLE_DISCONNECT_MS: "5000", // idle disconnect fires fast under test
         LOG_LEVEL: "warn",
       },
     },

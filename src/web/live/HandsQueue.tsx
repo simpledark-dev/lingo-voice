@@ -10,21 +10,19 @@ export function HandsQueue({ hands, host, meIdentity }: { hands: LiveParticipant
   return (
     <section className="lv-hands" data-testid="hands-queue" aria-label="Wants to speak">
       <div className="lv-hands-head">
-        <Icon name="hand" size={16} />
-        <h2>Wants to speak · {hands.length}</h2>
+        <Icon name="hand" size={15} />
+        <h2>Wants to speak</h2>
+        <span className="lv-hands-count">{hands.length}</span>
       </div>
       <ul className="lv-hands-list">
         {hands.map((p, index) => (
           <li key={p.identity} className="lv-hands-row" data-testid="hands-row" data-identity={p.identity}>
             <span className="lv-hands-pos">{index + 1}</span>
-            <Avatar name={p.name} identity={p.identity} size={30} />
-            <span className="lv-hands-name">
-              {p.name}
-              {p.identity === meIdentity && <span className="lv-tag">you</span>}
-            </span>
+            <Avatar name={p.name} identity={p.identity} size={28} />
+            <span className="lv-hands-name">{p.identity === meIdentity ? "You" : p.name}</span>
             {host && (
               <button className="lv-btn lv-btn-small lv-btn-primary" data-testid="hands-invite-btn" onClick={() => void host.invite(p.identity)}>
-                Invite
+                Accept
               </button>
             )}
           </li>

@@ -19,9 +19,9 @@ export function Avatar({ name, identity, size = 40, speaking = false }: { name: 
       style={{
         width: size,
         height: size,
-        fontSize: Math.round(size * 0.38),
-        background: `hsl(${hue} 45% 88%)`,
-        color: `hsl(${hue} 40% 28%)`,
+        fontSize: Math.round(size * 0.36),
+        background: `linear-gradient(135deg, hsl(${hue} 70% 58%), hsl(${(hue + 40) % 360} 70% 46%))`,
+        color: "#fff",
       }}
       aria-hidden
     >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LEVELS, type LanguageCode, type Level, type Passage } from "@/core/room-model";
 import { languageLabel } from "@/core/room-model";
 import { libraryPassage, passagesFor } from "@/core/passages";
@@ -25,6 +25,14 @@ export function PassagePicker({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const list = passagesFor(language, filter === "all" ? undefined : filter);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const pick = async (passage: Passage) => {
     setBusy(true);

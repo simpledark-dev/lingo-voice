@@ -27,7 +27,7 @@ function Row({ p, host, onMenu }: { p: LiveParticipant; host: HostControls | nul
       {host && !p.isLocal && (
         p.stageRole === "listener" && p.handRaisedAt ? (
           <button className="lv-btn lv-btn-small lv-btn-primary" data-testid="invite-btn" onClick={() => void host.invite(p.identity)}>
-            Invite
+            Accept
           </button>
         ) : (
           <button className="lv-iconbtn" aria-label={`Actions for ${p.name}`} data-testid="person-menu" onClick={() => onMenu(p)}>

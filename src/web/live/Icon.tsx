@@ -13,7 +13,8 @@ export type IconName =
   | "smile"
   | "chevron-left"
   | "check"
-  | "alert";
+  | "alert"
+  | "share";
 
 const PATHS: Record<IconName, string> = {
   mic: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v3M8 21h8",
@@ -29,6 +30,7 @@ const PATHS: Record<IconName, string> = {
   "chevron-left": "M15 18l-6-6 6-6",
   check: "M20 6 9 17l-5-5",
   alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
+  share: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13",
 };
 
 export function Icon({ name, size = 20, ...rest }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {

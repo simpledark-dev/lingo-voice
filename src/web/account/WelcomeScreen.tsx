@@ -27,11 +27,18 @@ export function WelcomeScreen({ onGuest }: { onGuest: () => Promise<void> }) {
   };
 
   return (
-    <main className="lv-page lv-center" data-testid="welcome-screen">
-      <div className="lv-card lv-welcome">
+    <main className="lv-page lv-center lv-welcome-page" data-testid="welcome-screen">
+      <div className="lv-welcome">
         <div className="lv-wordmark">Lingo</div>
-        <h1>Practice speaking with real people</h1>
+        <h1>
+          Practice speaking <span className="lv-accent-text">with real people</span>
+        </h1>
         <p className="lv-muted">Join a live room, listen, raise your hand, read a passage aloud and get feedback from the host.</p>
+        <ul className="lv-welcome-points">
+          <li>Live rooms in 8 languages, beginner to advanced</li>
+          <li>Raise your hand, get called up, read aloud</li>
+          <li>Chat and react while you listen</li>
+        </ul>
         <div className="lv-welcome-actions">
           <button className="lv-btn lv-btn-primary lv-btn-large" data-testid="guest-continue" disabled={busy} onClick={() => void guest()}>
             {busy ? "Setting you up…" : "Continue as guest"}

@@ -25,6 +25,7 @@ function fakeClient(rooms: Array<{ name: string; metadata: string; numParticipan
         { sid: "TR_b", type: TrackType.AUDIO, muted: true },
       ],
     }) as never),
+    listParticipants: vi.fn(async () => [] as never),
     removeParticipant: vi.fn(async () => undefined),
     mutePublishedTrack: vi.fn(async () => ({}) as never),
     updateParticipant: vi.fn(async () => ({}) as never),

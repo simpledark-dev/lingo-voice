@@ -32,6 +32,27 @@ Roles inside a room:
 - **Speaker**: a learner the host invited. Can publish a microphone until removed from stage. Several speakers can be on stage at once.
 - **Listener**: everyone else. Hears the stage, chats, reacts, raises a hand.
 
+### Idle disconnect (cost control)
+
+A participant whose room tab is hidden (another tab, app in the background, locked screen) for longer than
+`ROOM_IDLE_DISCONNECT_MS` (default 10 minutes) is disconnected and shown a one-tap "Rejoin" screen. Two layers
+enforce it: the room page's own timer, and a server sweep run from the lobby endpoint at most once a minute
+that removes room participants whose presence heartbeat (sent only while the tab is visible) is older than the
+limit, which covers phones that suspend background tabs. Hosts are not exempt; the room stays open for the
+others. Lobby presence has no LiveKit cost and is never cut.
+
+### Look and feel
+
+Dark "stage" theme with one warm accent (coral to pink) for primary actions and the live badge, mint for
+whoever is speaking, amber for raised hands; Manrope for UI text and a serif for passages. Reactions are the
+only emoji on screen; every control uses inline SVG icons. On phones the room is a single column: stage strip,
+compact "wants to speak" strip, collapsible passage (open by default for the host and speakers, collapsed
+for listeners), chat floating over the lower third as translucent pills so the passage keeps the column, and a
+bottom bar with the hand or mic button, the message field and reactions. The header carries Share (native share
+sheet on phones, copy link elsewhere) and, for the host, End. Raised hands are accepted with one tap from the
+queue; the learner's prompt shows their place in line. Inputs are 16px so iOS does not zoom. `SHOTS=1 pnpm exec playwright test e2e/screenshots.spec.ts`
+captures every screen at phone and desktop sizes into `test-results/shots/` for design review.
+
 ### Where state lives
 
 Real-time room state rides on LiveKit; accounts, presence and invites live in a small SQL database:
@@ -160,6 +181,7 @@ HTTPS in front of it (microphone access requires a secure context).
 | `DEFAULT_PARTICIPANT_ROLE` | no (`speaker`) | server only | role when the client sends none |
 | `DATABASE_URL` | production yes (local default `file:./data/lingo.db`) | server only | Turso `libsql://…` URL in production |
 | `DATABASE_AUTH_TOKEN` | with Turso | server only | |
+| `ROOM_IDLE_DISCONNECT_MS` | no (600000) | server only | hidden-tab limit before a room participant is disconnected |
 | `LOG_LEVEL` | no (`info`) | server only | `debug` / `info` / `warn` / `error` |
 
 ## Using a session
@@ -321,7 +343,8 @@ mute propagation, signal reconnect, forced full reconnect, offline → online, s
 auto-rejoin with fresh token, refresh without duplicates, leave/join, listener role, permission denied → recovery,
 duplicate identity, muted participants send nothing audible.
 
-`e2e/live-room.spec.ts` drives the product with real guest accounts (throwaway SQLite file): welcome screen →
+`e2e/live-room.spec.ts` drives the product with real guest accounts (throwaway SQLite file, idle limit set to
+5 s): hidden tab → idle disconnect → rejoin, for a learner and for the host; welcome screen →
 continue as guest, account kept by cookie, rename; raised hand visible to the host in the room's queue; host creates a room → it appears in the lobby and the host shows as
 online inside it → learner joins as listener and hears the host → chat both ways → reaction → raise hand →
 host invites → learner turns on the mic and the host hears them → host deletes a message, changes the passage,

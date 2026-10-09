@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { languageLabel, type RoomDetails } from "@/core/room-model";
 import { useAccount } from "@/web/account/AccountProvider";
+import { LoadingScreen } from "@/web/account/LoadingScreen";
+import { useIdleDisconnect } from "@/web/hooks/useIdleDisconnect";
 import { usePresenceHeartbeat } from "@/web/hooks/usePresence";
 import { NameEditor } from "@/web/lobby/NameEditor";
 import { Avatar } from "./Avatar";
@@ -12,9 +14,17 @@ import { Icon } from "./Icon";
 import { RoomShell } from "./RoomShell";
 import { useLiveRoom } from "./useLiveRoom";
 
-type DetailsState = { kind: "loading" } | { kind: "ready"; room: RoomDetails } | { kind: "missing" } | { kind: "error"; message: string };
+type DetailsState = { kind: "loading" } | { kind: "ready"; room: RoomDetails; idleMs: number } | { kind: "missing" } | { kind: "error"; message: string };
 
-function EndScreen({ title, body, testId, action }: { title: string; body: string; testId: string; action?: { label: string; onClick: () => void } }) {
+const DEFAULT_IDLE_MS = 10 * 60_000;
+
+function minutesLabel(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return "a moment";
+  return minutes === 1 ? "a minute" : `${minutes} minutes`;
+}
+
+function EndScreen({ title, body, testId, action }: { title: string; body: string; testId: string; action?: { label: string; onClick: () => void; testId?: string } }) {
   return (
     <main className="lv-page lv-center" data-testid={testId}>
       <div className="lv-card lv-endcard">
@@ -22,7 +32,7 @@ function EndScreen({ title, body, testId, action }: { title: string; body: strin
         <p className="lv-muted">{body}</p>
         <div className="lv-row">
           {action && (
-            <button className="lv-btn lv-btn-primary" onClick={action.onClick}>
+            <button className="lv-btn lv-btn-primary" onClick={action.onClick} data-testid={action.testId}>
               {action.label}
             </button>
           )}
@@ -41,7 +51,15 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
   const { me, rename } = useAccount();
   const [details, setDetails] = useState<DetailsState>({ kind: "loading" });
   const [joined, setJoined] = useState(false);
+  const [idleKicked, setIdleKicked] = useState(false);
   usePresenceHeartbeat(joined ? roomId : null);
+
+  const idleMs = details.kind === "ready" ? details.idleMs : DEFAULT_IDLE_MS;
+  const connectedish = joined && (live.state.status === "connected" || live.state.status === "reconnecting" || live.state.status === "rejoining");
+  useIdleDisconnect(connectedish, idleMs, () => {
+    setIdleKicked(true);
+    void live.leave();
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -50,8 +68,8 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
         if (cancelled) return;
         if (res.status === 404) return setDetails({ kind: "missing" });
         if (!res.ok) return setDetails({ kind: "error", message: `Could not load the room (${res.status}).` });
-        const body = (await res.json()) as { room: RoomDetails };
-        setDetails({ kind: "ready", room: body.room });
+        const body = (await res.json()) as { room: RoomDetails; idleDisconnectMs?: number };
+        setDetails({ kind: "ready", room: body.room, idleMs: body.idleDisconnectMs ?? DEFAULT_IDLE_MS });
       })
       .catch(() => !cancelled && setDetails({ kind: "error", message: "Could not reach the server." }));
     return () => {
@@ -60,6 +78,26 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
   }, [roomId]);
 
   const { status, error } = live.state;
+
+  if (idleKicked && status === "idle") {
+    return (
+      <EndScreen
+        title="You were away for a while"
+        body={`You were out of the room for more than ${minutesLabel(idleMs)}, so we disconnected you to keep the room light. Rejoin whenever you are back.`}
+        testId="room-idle"
+        action={{
+          label: "Rejoin",
+          testId: "idle-rejoin",
+          onClick: () => {
+            if (!me) return;
+            setIdleKicked(false);
+            setJoined(true);
+            void live.join(me.displayName, me.id);
+          },
+        }}
+      />
+    );
+  }
 
   if (error?.code === "session-closed") {
     return <EndScreen title="This room has ended" body="The host closed the room. Thanks for practicing." testId="room-ended" />;
@@ -90,13 +128,7 @@ export function LiveRoomPage({ roomId }: { roomId: string }) {
     );
   }
 
-  if (details.kind === "loading") {
-    return (
-      <main className="lv-page lv-center">
-        <p className="lv-muted">Loading room…</p>
-      </main>
-    );
-  }
+  if (details.kind === "loading") return <LoadingScreen label="Opening the room" />;
   if (details.kind === "missing") {
     return <EndScreen title="This room isn't live" body="It may have ended, or the link is wrong. Live rooms appear in the lobby." testId="room-missing" />;
   }

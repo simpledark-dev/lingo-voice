@@ -46,7 +46,7 @@ export function ChatMessages({ messages, hostIdentity, myIdentity, canModerate, 
   );
 }
 
-export function ChatInput({ canSend, disabledReason, onSend }: { canSend: boolean; disabledReason?: string; onSend: (text: string) => Promise<void> }) {
+export function ChatInput({ canSend, disabledReason, onSend, placeholder = "Message" }: { canSend: boolean; disabledReason?: string; onSend: (text: string) => Promise<void>; placeholder?: string }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const submit = async (e: FormEvent) => {
@@ -67,7 +67,7 @@ export function ChatInput({ canSend, disabledReason, onSend }: { canSend: boolea
         data-testid="chat-input"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={canSend ? "Message" : disabledReason ?? "Chat unavailable"}
+        placeholder={canSend ? placeholder : disabledReason ?? "Chat unavailable"}
         maxLength={500}
         disabled={!canSend}
         autoComplete="off"

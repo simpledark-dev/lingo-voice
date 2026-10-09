@@ -4,6 +4,8 @@ import { createLogger, databaseFailure, roomService } from "@/server/api-helpers
 import { getUser } from "@/server/auth";
 import { apiError, apiJson } from "@/server/http";
 import { errorFields } from "@/server/logger";
+import { roomIdleDisconnectMs } from "@/server/idle";
+import { maybeSweepIdle } from "@/server/idle-sweep";
 import { listPendingInvitesFor } from "@/server/invites";
 import { getUsersByIds, listOnlineUsers, toPublicUser, touchPresence } from "@/server/users";
 
@@ -37,6 +39,13 @@ export async function GET(request: Request): Promise<Response> {
     } catch (err) {
       log.error("lobby.rooms-failed", errorFields(err));
       roomsError = "Could not load live rooms.";
+    }
+    // Opportunistic idle sweep: nobody should pay LiveKit minutes for a hidden tab.
+    try {
+      const sweep = await maybeSweepIdle(svc.service, { idleMs: roomIdleDisconnectMs(), getUsersByIds });
+      if (sweep && sweep.removed.length > 0) log.info("lobby.idle-sweep", { removed: sweep.removed });
+    } catch (err) {
+      log.warn("lobby.idle-sweep-failed", errorFields(err));
     }
   }
   const roomTitles = new Map(rooms.map((r) => [r.id, r.title]));

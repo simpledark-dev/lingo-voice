@@ -62,7 +62,12 @@ test("muted participants send only DTX keep-alives and nobody receives their aud
     await b.getByTestId("btn-mic").click();
     await expect(a.getByTestId("mic-state")).toHaveText("muted");
     await expect(b.getByTestId("mic-state")).toHaveText("muted");
-    await a.waitForTimeout(4_000); // drain in-flight packets
+    // Wait until the encoder has actually switched to DTX on both sides before measuring.
+    for (const page of [a, b]) {
+      await expect
+        .poll(async () => (await rates(page, page === a ? idB : idA, 2)).sentPps, { timeout: 20_000, message: "mute should drop the send rate" })
+        .toBeLessThan(10);
+    }
 
     const muted = await rates(a, idB, 8);
     console.log("both muted:", muted);
@@ -72,7 +77,9 @@ test("muted participants send only DTX keep-alives and nobody receives their aud
 
     await a.getByTestId("btn-mic").click();
     await expect(a.getByTestId("mic-state")).toHaveText("live");
-    await a.waitForTimeout(4_000);
+    await expect
+      .poll(async () => (await rates(b, idA, 2)).receivedPps, { timeout: 20_000, message: "unmute should restore the stream" })
+      .toBeGreaterThan(40);
 
     const mixed = await rates(b, idA, 8);
     console.log("A live, B muted (measured on B):", mixed);
